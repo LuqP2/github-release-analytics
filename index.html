@@ -485,6 +485,21 @@ function assetGain(tag,name,current){
   if(!prev.pa || prev.pa[key]==null) return 0;
   return current-prev.pa[key];
 }
+// Most recent snapshot-to-snapshot window where this asset's download count increased.
+// We only sample at snapshot times, so this is a window, not an exact download timestamp.
+function lastGrowthWindow(tag,name){
+  const a=repoSnaps(); const key=tag+'::'+name;
+  if(a.length<2) return null;
+  for(let i=a.length-1;i>0;i--){
+    const curr=a[i].pa&&a[i].pa[key], prev=a[i-1].pa&&a[i-1].pa[key];
+    if(curr!=null&&prev!=null&&curr>prev) return { from:a[i-1].t, to:a[i].t };
+  }
+  return { none:true, since:a[0].t };
+}
+function growthTooltip(w){
+  const d=iso=>new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  return w.none ? `No growth detected since tracking began (${d(w.since)})` : `Last growth detected between ${d(w.from)} and ${d(w.to)}`;
+}
 
 /* ---------- release filter ---------- */
 function filteredVersions(){
@@ -699,7 +714,12 @@ function renderTable(){
     const assets=[...v.assets].sort((a,b)=>b.count-a.count).map(a=>{
       const ag=assetGain(v.version,a.name,a.count);
       const aArrow=ag>0?` <span title="+${fmt(ag)} downloads since your last snapshot" style="color:var(--good);font-weight:800;font-size:11px">▲ ${fmtShort(ag)}</span>`:'';
-      return `<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}${aArrow}</span><span class="pill" style="background:color-mix(in srgb,var(${PLAT[a.cat]}) 16%,transparent);color:var(${PLAT[a.cat]})">${a.cat}</span></div></div>`;
+      let staleMark='';
+      if(ag<=0 && repoSnaps().length>=2){
+        const w=lastGrowthWindow(v.version,a.name);
+        if(w) staleMark=` <span title="${escapeHtml(growthTooltip(w))}" style="color:var(--faint);font-size:11px;cursor:help;border-bottom:1px dotted var(--faint)">last seen</span>`;
+      }
+      return `<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}${aArrow}${staleMark}</span><span class="pill" style="background:color-mix(in srgb,var(${PLAT[a.cat]}) 16%,transparent);color:var(${PLAT[a.cat]})">${a.cat}</span></div></div>`;
     }).join('');
     detail.innerHTML=`<td colspan="6" style="background:var(--panel-2)"><div class="assets">${assets||'No asset data.'}</div></td>`;
     tr.onclick=()=>{ tr.classList.toggle('open'); detail.classList.toggle('hidden'); };

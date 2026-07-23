@@ -18,7 +18,7 @@ Release Radar solves the history problem **without a backend**:
 Every time you analyze a repo, a timestamped snapshot is saved **locally in your browser**. Revisit later and Release Radar computes **real measured velocity** (not estimated from release dates) and plots true downloads-over-time. Export/import the history as JSON to back it up, sync across machines, or share it.
 
 ### 🟢 Per-version and per-asset growth arrows
-Versions that gained downloads since your last snapshot are flagged with a green ▲ and the exact delta — so you can see at a glance which releases are still being pulled. Expand a release and the same tracking goes one level deeper: track download growth for every release asset over time, and see exactly how many new downloads each binary gained since your last visit.
+Versions that gained downloads since your last snapshot are flagged with a green ▲ and the exact delta — so you can see at a glance which releases are still being pulled. Expand a release and the same tracking goes one level deeper: track download growth for every release asset over time, and see exactly how many new downloads each binary gained since your last visit. Assets that have gone quiet get a discreet "last seen" hint instead, showing the last window in which growth was detected.
 
 ### ⭐ Star history
 See a repo's star growth as a cumulative chart, plus stats like average stars/day and the day it gained the most. Requires a token with access to the repo (GitHub restricts this data to admins/collaborators as of June 2026), so it works out of the box for your own repos.
