@@ -244,7 +244,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
               <option value="total_downloads">Total downloads</option>
               <option value="downloads_per_day">Downloads / day</option>
               <option value="windows">Windows</option><option value="mac">macOS</option>
-              <option value="linux">Linux</option><option value="android">Android</option><option value="other">Other</option>
+              <option value="linux">Linux</option><option value="android">Android</option><option value="other">Other</option><option value="meta">Auto-update</option>
             </select></div>
           </div>
         </div>
@@ -254,7 +254,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
       <!-- platform + adoption -->
       <div class="section two-col">
         <div>
-          <h3>Platform split</h3>
+          <h3>Platform split <label id="showMetaWrap" class="hidden" style="font-weight:600;text-transform:none;letter-spacing:0;color:var(--faint);font-size:12px;cursor:pointer"><input type="checkbox" id="showMeta" onchange="onToggleMeta()" style="vertical-align:-1px;margin-right:3px"> show auto-update</label></h3>
           <div class="card chart-box"><div class="chart-h sm"><canvas id="platChart"></canvas></div>
           <div id="platLegend" class="legend"></div></div>
         </div>
@@ -333,8 +333,8 @@ tr.open .vtag svg{transform:rotate(180deg)}
 
 <script>
 /* ---------- state ---------- */
-const S = { repo:null, meta:null, versions:[], summary:null, months:{}, mainChart:null, platChart:null, adoptChart:null, starChart:null, starSeries:null };
-const LS = { snaps:'rr_snaps_v1', recent:'rr_recent_v1', theme:'rr_theme_v1', cmp:'rr_cmp_v1' };
+const S = { repo:null, meta:null, versions:[], summary:null, months:{}, mainChart:null, platChart:null, adoptChart:null, starChart:null, starSeries:null, showMeta:false };
+const LS = { snaps:'rr_snaps_v1', recent:'rr_recent_v1', theme:'rr_theme_v1', cmp:'rr_cmp_v1', showMeta:'rr_showmeta_v1' };
 const $ = id => document.getElementById(id);
 const fmt = n => (n==null?'—':n.toLocaleString('en-US'));
 const fmtShort = n => { n=+n||0; if(n>=1e6)return (n/1e6).toFixed(1)+'M'; if(n>=1e3)return (n/1e3).toFixed(1)+'k'; return ''+n; };
@@ -360,6 +360,14 @@ function detectPlatform(name){
   if(f.includes('windows')||f.includes('win32')||f.includes('win64')||f.includes('-win')) return 'Windows';
   if(f.endsWith('.zip')||f.endsWith('.rar')||f.endsWith('.7z')) return 'Windows';
   return 'Other';
+}
+/* electron-builder / auto-update metadata: downloaded repeatedly by every running client,
+   so it dwarfs real installs. Excluded from platform math, surfaced separately. */
+function isMetadata(name){
+  const f=name.toLowerCase();
+  return f.endsWith('.blockmap')||f.endsWith('.yml')||f.endsWith('.yaml')
+      || f.endsWith('.sha256')||f.endsWith('.sha512')
+      || f.endsWith('.sig')||f.endsWith('.asc')||f.endsWith('.pem');
 }
 const PLAT = { Windows:'--win', Mac:'--mac', Linux:'--linux', Android:'--android', Other:'--other' };
 
@@ -432,22 +440,31 @@ async function run(){
 /* ---------- model ---------- */
 function buildModel(releases){
   let vs=releases.map(r=>{
-    const cats={Windows:0,Mac:0,Linux:0,Android:0,Other:0}; const assets=[];
-    r.assets.forEach(a=>{ const c=detectPlatform(a.name); cats[c]+=a.download_count; assets.push({name:a.name,count:a.download_count,cat:c}); });
-    return { version:r.tag_name, name:r.name, date:new Date(r.published_at), prerelease:r.prerelease, cats, assets };
+    const cats={Windows:0,Mac:0,Linux:0,Android:0,Other:0}; const assets=[]; let metaTotal=0;
+    r.assets.forEach(a=>{
+      const meta=isMetadata(a.name);
+      // for a .blockmap the base platform still helps the asset badge (latest.yml → Windows, etc.)
+      const c=detectPlatform(meta?a.name.replace(/\.blockmap$/i,''):a.name);
+      if(meta) metaTotal+=a.download_count; else cats[c]+=a.download_count;
+      assets.push({name:a.name,count:a.download_count,cat:c,meta});
+    });
+    return { version:r.tag_name, name:r.name, date:new Date(r.published_at), prerelease:r.prerelease, cats, metaTotal, assets };
   }).filter(v=>v.date instanceof Date && !isNaN(v.date)).sort((a,b)=>b.date-a.date);
 
-  const today=new Date(); const months={}; const sum={Windows:0,Mac:0,Linux:0,Android:0,Other:0,total:0};
+  const today=new Date(); const months={}; const sum={Windows:0,Mac:0,Linux:0,Android:0,Other:0,installTotal:0,metaTotal:0,total:0};
   vs.forEach((v,i)=>{
     const next=(i===0)?today:vs[i-1].date;
     v.days_live=Math.max(1,Math.floor(Math.abs(next-v.date)/864e5));
     v.age=Math.floor(Math.abs(today-v.date)/864e5);
     v.windows=v.cats.Windows; v.mac=v.cats.Mac; v.linux=v.cats.Linux; v.android=v.cats.Android; v.other=v.cats.Other;
-    v.total_downloads=v.windows+v.mac+v.linux+v.android+v.other;
+    v.meta=v.metaTotal;
+    v.installTotal=v.windows+v.mac+v.linux+v.android+v.other;
+    v.total_downloads=v.installTotal+v.metaTotal; // all assets — unchanged from before, keeps snapshots consistent
     v.downloads_per_day=+(v.total_downloads/v.days_live).toFixed(1);
     v.monthKey=v.date.toISOString().slice(0,7);
     (months[v.monthKey]=months[v.monthKey]||[]).push(v);
-    ['Windows','Mac','Linux','Android','Other'].forEach(k=>sum[k]+=v.cats[k]); sum.total+=v.total_downloads;
+    ['Windows','Mac','Linux','Android','Other'].forEach(k=>sum[k]+=v.cats[k]);
+    sum.installTotal+=v.installTotal; sum.metaTotal+=v.metaTotal; sum.total+=v.total_downloads;
   });
   vs.forEach(v=> v.share=sum.total?+(100*v.total_downloads/sum.total).toFixed(1):0 );
   S.versions=vs; S.summary=sum; S.months=months;
@@ -462,7 +479,7 @@ function saveSnapshot(){
   const pv={}, pa={};
   S.versions.forEach(v=>{ pv[v.version]=v.total_downloads; v.assets.forEach(a=>{ pa[v.version+'::'+a.name]=a.count; }); });
   const snap={ t:new Date().toISOString(), total:S.summary.total,
-    plat:{Windows:S.summary.Windows,Mac:S.summary.Mac,Linux:S.summary.Linux,Android:S.summary.Android,Other:S.summary.Other}, pv, pa };
+    plat:{Windows:S.summary.Windows,Mac:S.summary.Mac,Linux:S.summary.Linux,Android:S.summary.Android,Other:S.summary.Other,Meta:S.summary.metaTotal}, pv, pa };
   // avoid duplicate snapshots within the same hour
   if(last && (new Date(snap.t)-new Date(last.t))<36e5 && last.total===snap.total){ arr[arr.length-1]=snap; }
   else arr.push(snap);
@@ -571,9 +588,10 @@ function renderKPIs(){
   const delta=lastDelta();
   const deltaSub = delta ? `<div class="k-sub ${delta.gained>=0?'up':'down'}">${delta.gained>=0?'▲':'▼'} ${fmt(Math.abs(delta.gained))} since last visit</div>` : '<div class="k-sub">tracking started</div>';
   const topPlat=['Windows','Mac','Linux','Android','Other'].map(k=>[k,s[k]]).sort((a,b)=>b[1]-a[1])[0];
-  const platPct=s.total?Math.round(100*topPlat[1]/s.total):0;
+  const platPct=s.installTotal?Math.round(100*topPlat[1]/s.installTotal):0;
+  const metaSub=deltaSub+(s.metaTotal>0?`<div class="k-sub">incl. ${fmt(s.metaTotal)} auto-update files</div>`:'');
   $('kpis').innerHTML=`
-    <div class="kpi"><div class="k-bar"></div><div class="k-label">Total downloads</div><div class="k-val">${fmt(s.total)}</div>${deltaSub}</div>
+    <div class="kpi"><div class="k-bar"></div><div class="k-label">Total downloads</div><div class="k-val">${fmt(s.total)}</div>${metaSub}</div>
     <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">Velocity ${velBadge}</div><div class="k-val">${fmt(velVal)}<span style="font-size:14px;color:var(--faint)">/day</span></div><div class="k-sub">${v?'from your snapshots':'latest release estimate'}</div></div>
     <div class="kpi"><div class="k-bar" style="background:var(--accent-2)"></div><div class="k-label">Latest release</div><div class="k-val" style="font-size:20px">${latest?escapeHtml(latest.version):'—'}</div><div class="k-sub">${latest?fmt(latest.total_downloads)+' downloads · '+latest.age+'d old':''}</div></div>
     <div class="kpi"><div class="k-bar" style="background:var(${PLAT[topPlat[0]]})"></div><div class="k-label">Top platform</div><div class="k-val" style="font-size:22px">${topPlat[0]}</div><div class="k-sub">${platPct}% of all downloads</div></div>`;
@@ -584,7 +602,8 @@ function renderInsights(){
   const topV=[...vs].sort((a,b)=>b.total_downloads-a.total_downloads)[0];
   if(topV) out.push(['--accent',`<b>${escapeHtml(topV.version)}</b> is the most downloaded release with <b>${fmt(topV.total_downloads)}</b> downloads (${topV.share}% of all time).`]);
   const topPlat=['Windows','Mac','Linux','Android','Other'].map(k=>[k,s[k]]).sort((a,b)=>b[1]-a[1])[0];
-  if(topPlat[1]>0) out.push([PLAT[topPlat[0]],`<b>${topPlat[0]}</b> users dominate — <b>${Math.round(100*topPlat[1]/s.total)}%</b> of downloads. ${downloadedPlatforms()} platforms detected.`]);
+  if(topPlat[1]>0 && s.installTotal>0) out.push([PLAT[topPlat[0]],`<b>${topPlat[0]}</b> users dominate — <b>${Math.round(100*topPlat[1]/s.installTotal)}%</b> of downloads. ${downloadedPlatforms()} platforms detected.`]);
+  if(s.metaTotal>0) out.push(['--other',`Auto-update traffic: <b>${fmt(s.metaTotal)}</b> downloads (<b>${Math.round(100*s.metaTotal/s.total)}%</b> of raw total) — latest.yml, blockmaps &amp; checksums, excluded from platform stats.`]);
   // momentum: recent 3 releases vs previous 3 by downloads/day
   if(vs.length>=4){
     const recent=vs.slice(0,3), older=vs.slice(3,6);
@@ -619,7 +638,7 @@ function drawMain(){
     const a=repoSnaps();
     if(a.length<2){ $('cGroup').value='version'; return drawMain(); }
     labels=a.map(s=>new Date(s.t).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit'}));
-    if(['windows','mac','linux','android','other'].includes(metric)){ const key={windows:'Windows',mac:'Mac',linux:'Linux',android:'Android',other:'Other'}[metric]; data=a.map(s=>s.plat?s.plat[key]:0); }
+    if(['windows','mac','linux','android','other','meta'].includes(metric)){ const key={windows:'Windows',mac:'Mac',linux:'Linux',android:'Android',other:'Other',meta:'Meta'}[metric]; data=a.map(s=>s.plat?(s.plat[key]||0):0); }
     else data=a.map(s=>s.total);
   } else {
     const sorted=[...filteredVersions()].sort((a,b)=>a.date-b.date);
@@ -635,14 +654,20 @@ function drawMain(){
       borderColor:acc, borderWidth:2, fill:type==='line', tension:.35, pointRadius:type==='line'?2:0, pointHoverRadius:5 }] },
     options: baseOpts(type==='pie') });
 }
+function onToggleMeta(){ S.showMeta=$('showMeta').checked; try{localStorage.setItem(LS.showMeta,S.showMeta?'1':'')}catch(e){} drawPlat(); }
 function drawPlat(){
-  const s=S.summary; const keys=['Windows','Mac','Linux','Android','Other'].filter(k=>s[k]>0);
-  const data=keys.map(k=>s[k]); const colors=keys.map(k=>cssVar(PLAT[k]));
+  const s=S.summary; const showMeta=S.showMeta && s.metaTotal>0;
+  const wrap=$('showMetaWrap'); wrap.classList.toggle('hidden',!(s.metaTotal>0)); $('showMeta').checked=S.showMeta;
+  const keys=['Windows','Mac','Linux','Android','Other'].filter(k=>s[k]>0);
+  const vals=keys.map(k=>s[k]); const colors=keys.map(k=>cssVar(PLAT[k]));
+  if(showMeta){ keys.push('Auto-update'); vals.push(s.metaTotal); colors.push(cssVar('--other')); }
+  const denom=showMeta ? s.total : s.installTotal; // segments sum to 100% either way
+  const valOf=k=>k==='Auto-update'?s.metaTotal:s[k];
   if(S.platChart)S.platChart.destroy();
   S.platChart=new Chart($('platChart'),{ type:'doughnut',
-    data:{ labels:keys, datasets:[{data,backgroundColor:colors,borderColor:cssVar('--panel'),borderWidth:3}] },
-    options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${fmt(c.parsed)} (${Math.round(100*c.parsed/s.total)}%)`}}}} });
-  $('platLegend').innerHTML=keys.map(k=>`<span><i style="background:var(${PLAT[k]})"></i>${k} · ${Math.round(100*s[k]/s.total)}%</span>`).join('');
+    data:{ labels:keys, datasets:[{data:vals,backgroundColor:colors,borderColor:cssVar('--panel'),borderWidth:3}] },
+    options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${fmt(c.parsed)} (${denom?Math.round(100*c.parsed/denom):0}%)`}}}} });
+  $('platLegend').innerHTML=keys.map(k=>`<span><i style="background:var(${k==='Auto-update'?'--other':PLAT[k]})"></i>${k} · ${denom?Math.round(100*valOf(k)/denom):0}%</span>`).join('');
 }
 function drawAdopt(){
   const top=[...S.versions].sort((a,b)=>b.total_downloads-a.total_downloads).slice(0,10).reverse();
@@ -732,7 +757,8 @@ function renderTable(){
         const w=lastGrowthWindow(v.version,a.name);
         if(w) staleMark=` <span title="${escapeHtml(growthTooltip(w))}" style="color:var(--faint);font-size:11px;cursor:help;border-bottom:1px dotted var(--faint)">last seen</span>`;
       }
-      return `<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}${aArrow}${staleMark}</span><span class="pill" style="background:color-mix(in srgb,var(${PLAT[a.cat]}) 16%,transparent);color:var(${PLAT[a.cat]})">${a.cat}</span></div></div>`;
+      const badge=a.meta?'Auto-update':a.cat; const bc=a.meta?'--other':PLAT[a.cat];
+      return `<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}${aArrow}${staleMark}</span><span class="pill" style="background:color-mix(in srgb,var(${bc}) 16%,transparent);color:var(${bc})">${badge}</span></div></div>`;
     }).join('');
     detail.innerHTML=`<td colspan="6" style="background:var(--panel-2)"><div class="assets">${assets||'No asset data.'}</div></td>`;
     tr.onclick=()=>{ tr.classList.toggle('open'); detail.classList.toggle('hidden'); };
@@ -829,12 +855,12 @@ function clearSnapshots(){ const o=loadSnaps(); delete o[S.repo]; saveSnaps(o); 
 
 /* ---------- exports ---------- */
 function exportCSV(){
-  const rows=[['version','published','age_days','days_live','downloads_per_day','windows','mac','linux','android','other','total','share_pct']];
-  S.versions.forEach(v=>rows.push([v.version,v.date.toISOString().slice(0,10),v.age,v.days_live,v.downloads_per_day,v.windows,v.mac,v.linux,v.android,v.other,v.total_downloads,v.share]));
+  const rows=[['version','published','age_days','days_live','downloads_per_day','windows','mac','linux','android','other','install_total','auto_update','total','share_pct']];
+  S.versions.forEach(v=>rows.push([v.version,v.date.toISOString().slice(0,10),v.age,v.days_live,v.downloads_per_day,v.windows,v.mac,v.linux,v.android,v.other,v.installTotal,v.metaTotal,v.total_downloads,v.share]));
   download(`${S.repo.replace('/','-')}-downloads.csv`, rows.map(r=>r.map(c=>`"${(''+c).replace(/"/g,'""')}"`).join(',')).join('\n'),'text/csv');
 }
 function exportJSON(){
-  download(`${S.repo.replace('/','-')}-downloads.json`, JSON.stringify({repo:S.repo,summary:S.summary,generated:new Date().toISOString(),versions:S.versions.map(v=>({version:v.version,published:v.date.toISOString(),total:v.total_downloads,perDay:v.downloads_per_day,share:v.share,platforms:v.cats,assets:v.assets}))},null,2),'application/json');
+  download(`${S.repo.replace('/','-')}-downloads.json`, JSON.stringify({repo:S.repo,summary:S.summary,generated:new Date().toISOString(),versions:S.versions.map(v=>({version:v.version,published:v.date.toISOString(),total:v.total_downloads,installTotal:v.installTotal,metaTotal:v.metaTotal,perDay:v.downloads_per_day,share:v.share,platforms:v.cats,assets:v.assets}))},null,2),'application/json');
 }
 function exportPDF(){
   if(typeof html2pdf==='undefined'){ alert('PDF library still loading.'); return; }
@@ -849,6 +875,7 @@ function setUrl(repo){ try{ const u=new URL(location); u.searchParams.set('repo'
 
 /* ---------- init ---------- */
 (function init(){
+  try{ S.showMeta=!!localStorage.getItem(LS.showMeta); }catch(e){}
   renderRecent();
   const p=new URLSearchParams(location.search).get('repo');
   if(p){ $('repoInput').value=p; run(); }
