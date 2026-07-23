@@ -842,25 +842,29 @@ function renderSnapCompare(){
   if(new Date(from.t)>new Date(to.t)) [from,to]=[to,from];
   const days=Math.max((new Date(to.t)-new Date(from.t))/864e5,1/24);
   const gained=to.total-from.total, perDay=gained/days;
-  // Show every version, not just the ones that changed — a snapshot pair with no new
-  // release can still show real download growth on older versions.
-  // Cross-reference the live release dates so a version missing from "from"'s snapshot
-  // (partial fetch, pagination cap, etc.) isn't mistaken for a fresh release with a
-  // fabricated "gained since zero": only genuinely new-since-`from` releases get the full
-  // total as their gain; anything else with an unknown baseline is assumed unchanged (0).
+  // Show every version in the newer snapshot, each with its real download delta.
+  const fromPv=from.pv||{}, toPv=to.pv||{};
+  // How many of the newer snapshot's versions actually have a baseline in the older one?
+  // Old snapshots (taken before per-version tracking existed) have no `pv`, so there's
+  // nothing to diff against — surface that instead of a misleading wall of +0 / inflated numbers.
+  const overlap=Object.keys(toPv).filter(t=>fromPv[t]!=null).length;
   const dateOf={}; S.versions.forEach(v=>dateOf[v.version]=v.date);
-  const rows=Object.keys(to.pv||{}).map(tag=>{
-    const known=from.pv&&from.pv[tag]!=null;
-    const isNew=dateOf[tag]>new Date(from.t);
-    const base=known?from.pv[tag]:(isNew?0:to.pv[tag]);
-    return { tag, gained: to.pv[tag]-base };
+  const rows=Object.keys(toPv).map(tag=>{
+    const known=fromPv[tag]!=null;
+    const isNew=dateOf[tag]>new Date(from.t); // published after the "from" snapshot → genuinely new
+    const base=known?fromPv[tag]:(isNew?0:toPv[tag]); // unknown & pre-existing baseline → treat as no change
+    return { tag, gained: toPv[tag]-base };
   }).sort((a,b)=>b.gained-a.gained);
+  const noBaseline = overlap===0 && Object.keys(toPv).length>0;
+  const breakdown = noBaseline
+    ? `<p style="font-size:13px;color:var(--faint);margin:0">The earlier snapshot (${fmtSnapLabel(from.t)}) has no per-version data — it predates per-version tracking — so a per-version breakdown isn't available for this pair. The totals above are still accurate. Newer snapshots will show the full breakdown.</p>`
+    : `<div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Gained</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.tag)}</td><td class="num" style="color:${r.gained>0?'var(--good)':(r.gained<0?'var(--bad)':'var(--faint)')}">${r.gained>=0?'+':''}${fmt(r.gained)}</td></tr>`).join('')}</tbody></table></div>`;
   el.innerHTML=`
     <div class="kpis" style="margin-bottom:16px">
       <div class="kpi"><div class="k-bar"></div><div class="k-label">Total gained</div><div class="k-val">${gained>=0?'+':''}${fmt(gained)}</div><div class="k-sub">${fmtSnapLabel(from.t)} → ${fmtSnapLabel(to.t)}</div></div>
       <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">Avg / day</div><div class="k-val">${fmt(Math.round(perDay))}</div><div class="k-sub">${days<1?'<1 day':Math.round(days)+' day(s)'} apart</div></div>
     </div>
-    ${rows.length?`<div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Gained</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.tag)}</td><td class="num" style="color:${r.gained>=0?'var(--good)':'var(--bad)'}">${r.gained>=0?'+':''}${fmt(r.gained)}</td></tr>`).join('')}</tbody></table></div>`:'<p style="font-size:13px;color:var(--faint);margin:0">No per-version change between these snapshots.</p>'}`;
+    ${breakdown}`;
 }
 function exportSnapshots(){
   const data=JSON.stringify({repo:S.repo,exported:new Date().toISOString(),snapshots:repoSnaps()},null,2);
