@@ -60,7 +60,8 @@ https://luqp2.github.io/github-release-analytics/?repo=ollama/ollama
 
 ## Privacy
 
-- 100% client-side. No analytics, no tracking, no server.
+- 100% client-side app. No backend, no sign-in — your GitHub token and snapshots never leave your browser.
+- Anonymous page-visit analytics via GoatCounter (goatcounter.com), a privacy-friendly, cookieless tool. It only counts visits — no personal data and no cross-site tracking.
 - Snapshots are stored in your browser's `localStorage` and never leave your machine unless you explicitly export them.
 - Tokens are kept in memory only by default, and sent exclusively to `api.github.com`. If you opt in to "Remember on this device", the token is saved in `localStorage` — only enable this on a device you trust.
 
