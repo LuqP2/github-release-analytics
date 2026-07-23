@@ -470,20 +470,20 @@ function lastDelta(){
   const days=Math.max((new Date(last.t)-new Date(prev.t))/864e5,1/24);
   return { gained:last.total-prev.total, perDay:(last.total-prev.total)/days, since:prev.t };
 }
-// Downloads gained by a specific version since tracking began (first snapshot that recorded it)
+// Downloads gained by a specific version since the previous snapshot (not cumulative since tracking began)
 function versionGain(tag,current){
   const a=repoSnaps(); if(a.length<2) return 0;
-  const base=a.find(s=>s.pv && s.pv[tag]!=null);
-  if(!base) return 0;
-  return current-base.pv[tag];
+  const prev=a[a.length-2];
+  if(!prev.pv || prev.pv[tag]==null) return 0;
+  return current-prev.pv[tag];
 }
-// Downloads gained by a specific asset (within a version) since tracking began
+// Downloads gained by a specific asset (within a version) since the previous snapshot
 function assetGain(tag,name,current){
   const a=repoSnaps(); if(a.length<2) return 0;
+  const prev=a[a.length-2];
   const key=tag+'::'+name;
-  const base=a.find(s=>s.pa && s.pa[key]!=null);
-  if(!base) return 0;
-  return current-base.pa[key];
+  if(!prev.pa || prev.pa[key]==null) return 0;
+  return current-prev.pa[key];
 }
 
 /* ---------- release filter ---------- */
@@ -688,7 +688,7 @@ function renderTable(){
     const tr=document.createElement('tr'); tr.className='main';
     const maxShare=S.versions[0]?Math.max(...S.versions.map(x=>x.share)):1;
     const gain=versionGain(v.version,v.total_downloads);
-    const arrow=gain>0?` <span title="+${fmt(gain)} downloads since tracking started" style="color:var(--good);font-weight:800;font-size:12px">▲ ${fmtShort(gain)}</span>`:'';
+    const arrow=gain>0?` <span title="+${fmt(gain)} downloads since your last snapshot" style="color:var(--good);font-weight:800;font-size:12px">▲ ${fmtShort(gain)}</span>`:'';
     tr.innerHTML=`<td><span class="vtag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>${escapeHtml(v.version)}${v.prerelease?' <span class="pill" style="background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)">pre</span>':''}${arrow}</span></td>
       <td>${v.date.toISOString().slice(0,10)}</td>
       <td>${v.age}d</td>
@@ -698,7 +698,7 @@ function renderTable(){
     const detail=document.createElement('tr'); detail.className='hidden';
     const assets=[...v.assets].sort((a,b)=>b.count-a.count).map(a=>{
       const ag=assetGain(v.version,a.name,a.count);
-      const aArrow=ag>0?` <span title="+${fmt(ag)} downloads since tracking started" style="color:var(--good);font-weight:800;font-size:11px">▲ ${fmtShort(ag)}</span>`:'';
+      const aArrow=ag>0?` <span title="+${fmt(ag)} downloads since your last snapshot" style="color:var(--good);font-weight:800;font-size:11px">▲ ${fmtShort(ag)}</span>`:'';
       return `<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}${aArrow}</span><span class="pill" style="background:color-mix(in srgb,var(${PLAT[a.cat]}) 16%,transparent);color:var(${PLAT[a.cat]})">${a.cat}</span></div></div>`;
     }).join('');
     detail.innerHTML=`<td colspan="6" style="background:var(--panel-2)"><div class="assets">${assets||'No asset data.'}</div></td>`;
