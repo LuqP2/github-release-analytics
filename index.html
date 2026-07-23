@@ -99,6 +99,7 @@ a:hover{text-decoration:underline}
 .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-left:auto}
 .ctl label{display:block;font-size:10.5px;font-weight:700;color:var(--faint);margin-bottom:5px;text-transform:uppercase;letter-spacing:.03em}
 .ctl select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 11px;font-size:13px;outline:none;cursor:pointer}
+.ctl input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 11px;font-size:13px;outline:none}
 .chart-box{padding:18px}
 .chart-h{position:relative;height:340px}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px}
@@ -212,6 +213,20 @@ tr.open .vtag svg{transform:rotate(180deg)}
     </div>
 
     <div id="exportContent">
+      <!-- release filter -->
+      <div class="section">
+        <div class="section-head">
+          <h3>Filter releases</h3>
+          <div class="controls">
+            <div class="ctl"><label>Search</label><input id="fltSearch" placeholder="e.g. v1.2 or rc" oninput="applyFilter()"></div>
+            <div class="ctl"><label>From</label><input type="date" id="fltFrom" onchange="applyFilter()"></div>
+            <div class="ctl"><label>To</label><input type="date" id="fltTo" onchange="applyFilter()"></div>
+            <button class="iconbtn" onclick="clearFilter()">Clear</button>
+          </div>
+        </div>
+        <div id="fltInfo" style="font-size:12.5px;color:var(--faint)"></div>
+      </div>
+
       <!-- main chart -->
       <div class="section">
         <div class="section-head">
@@ -471,13 +486,33 @@ function assetGain(tag,name,current){
   return current-base.pa[key];
 }
 
+/* ---------- release filter ---------- */
+function filteredVersions(){
+  const q=($('fltSearch').value||'').trim().toLowerCase();
+  const from=$('fltFrom').value||'', to=$('fltTo').value||'';
+  return S.versions.filter(v=>{
+    if(q && !v.version.toLowerCase().includes(q) && !(v.name||'').toLowerCase().includes(q)) return false;
+    const d=v.date.toISOString().slice(0,10);
+    if(from && d<from) return false;
+    if(to && d>to) return false;
+    return true;
+  });
+}
+function applyFilter(){ renderTable(); if($('cGroup').value!=='snapshot') drawMain(); renderFilterInfo(); }
+function clearFilter(){ $('fltSearch').value=''; $('fltFrom').value=''; $('fltTo').value=''; applyFilter(); }
+function renderFilterInfo(){
+  const n=filteredVersions().length, total=S.versions.length;
+  $('fltInfo').textContent = n===total ? `Showing all ${total} releases.` : `Showing ${n} of ${total} releases.`;
+}
+
 /* ---------- render ---------- */
 function render(){
   $('skeleton').classList.add('hidden'); $('results').classList.remove('hidden');
+  $('fltSearch').value=''; $('fltFrom').value=''; $('fltTo').value='';
   renderSnapBanner(); renderHead(); renderKPIs(); renderInsights();
   // default group: snapshot view if we have history, else version
   $('cGroup').value = repoSnaps().length>=2 ? 'snapshot' : 'version';
-  drawMain(); drawPlat(); drawAdopt(); renderTable(); renderSnapInfo(); renderCompare();
+  drawMain(); drawPlat(); drawAdopt(); renderTable(); renderSnapInfo(); renderCompare(); renderFilterInfo();
 }
 
 function renderSnapBanner(){
@@ -559,7 +594,7 @@ function drawMain(){
     if(['windows','mac','linux','android','other'].includes(metric)){ const key={windows:'Windows',mac:'Mac',linux:'Linux',android:'Android',other:'Other'}[metric]; data=a.map(s=>s.plat?s.plat[key]:0); }
     else data=a.map(s=>s.total);
   } else {
-    const sorted=[...S.versions].sort((a,b)=>a.date-b.date);
+    const sorted=[...filteredVersions()].sort((a,b)=>a.date-b.date);
     if(group==='version'){ labels=sorted.map(v=>v.version); data=sorted.map(v=>v[metric]); }
     else { const mo={}; sorted.forEach(v=>mo[v.monthKey]=(mo[v.monthKey]||0)+v[metric]); labels=Object.keys(mo); data=Object.values(mo); }
   }
@@ -649,7 +684,7 @@ function drawStarChart(){
 /* ---------- table ---------- */
 function renderTable(){
   const body=$('relBody'); body.innerHTML='';
-  S.versions.forEach((v,i)=>{
+  filteredVersions().forEach((v,i)=>{
     const tr=document.createElement('tr'); tr.className='main';
     const maxShare=S.versions[0]?Math.max(...S.versions.map(x=>x.share)):1;
     const gain=versionGain(v.version,v.total_downloads);

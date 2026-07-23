@@ -17,8 +17,11 @@ Release Radar solves the history problem **without a backend**:
 ### 📈 Velocity Engine — real download tracking, no server
 Every time you analyze a repo, a timestamped snapshot is saved **locally in your browser**. Revisit later and Release Radar computes **real measured velocity** (not estimated from release dates) and plots true downloads-over-time. Export/import the history as JSON to back it up, sync across machines, or share it.
 
-### 🟢 Per-version growth arrows
-Versions that gained downloads since tracking began are flagged with a green ▲ and the exact delta — so you can see at a glance which releases are still being pulled.
+### 🟢 Per-version and per-asset growth arrows
+Versions that gained downloads since tracking began are flagged with a green ▲ and the exact delta — so you can see at a glance which releases are still being pulled. Expand a release and the same tracking goes one level deeper: track download growth for every release asset over time, and see exactly how many new downloads each binary gained between snapshots.
+
+### ⭐ Star history
+See a repo's star growth as a cumulative chart, plus stats like average stars/day and the day it gained the most. Requires a token with access to the repo (GitHub restricts this data to admins/collaborators as of June 2026), so it works out of the box for your own repos.
 
 ### 🧠 Automatic insights
 Most-downloaded release, dominant platform, download momentum (recent vs. older releases), and latest-version adoption — generated automatically, no configuration.
@@ -28,6 +31,9 @@ Benchmark total downloads across several repositories side by side.
 
 ### 🗂️ Rich breakdowns & exports
 Per-version, per-asset breakdown with expanded platform detection (Windows, macOS, Linux, **Android/APK**, snap, flatpak, msix, and more). Export to **CSV**, **JSON**, or **PDF**.
+
+### 🔍 Release filter
+Narrow the releases table and the download trend chart down to a search term or a date range — useful for zooming into a specific version or release window on repos with a long history.
 
 ### ✨ Premium UX
 Dark / light mode, KPI cards, version adoption chart, platform split donut, recent-repo shortcuts, and `?repo=owner/repo` deep-links that auto-load.
