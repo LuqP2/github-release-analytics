@@ -273,15 +273,20 @@ tr.open .vtag svg{transform:rotate(180deg)}
         <div class="section-head">
           <h3>Releases</h3>
           <div class="controls">
+            <div id="snapRangeCtl" class="hidden" style="display:contents">
+              <div class="ctl"><label>Compare from</label><select id="cmpFrom" onchange="onSnapRangeChange()"></select></div>
+              <div class="ctl"><label>To</label><select id="cmpTo" onchange="onSnapRangeChange()"></select></div>
+            </div>
             <button class="iconbtn" onclick="exportCSV()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>CSV</button>
             <button class="iconbtn" onclick="exportJSON()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>JSON</button>
             <button class="iconbtn" id="btnPdf" onclick="exportPDF()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>PDF</button>
           </div>
         </div>
+        <div id="snapCompareResult"></div>
         <div class="tbl-wrap"><table id="relTable">
           <thead><tr>
             <th>Version</th><th>Published</th><th>Age</th>
-            <th>Downloads/day</th><th>Total</th><th>Share</th>
+            <th>Downloads/day</th><th>Total</th><th>Gained</th><th>Share</th>
           </tr></thead>
           <tbody id="relBody"></tbody>
         </table></div>
@@ -316,17 +321,6 @@ tr.open .vtag svg{transform:rotate(180deg)}
       </div>
     </div>
 
-    <!-- compare snapshots -->
-    <div class="section">
-      <div class="section-head"><h3>Compare snapshots</h3></div>
-      <div class="card pad">
-        <div class="controls" style="margin:0 0 16px">
-          <div class="ctl"><label>From</label><select id="cmpFrom" onchange="renderSnapCompare()"></select></div>
-          <div class="ctl"><label>To</label><select id="cmpTo" onchange="renderSnapCompare()"></select></div>
-        </div>
-        <div id="snapCompareResult"></div>
-      </div>
-    </div>
   </div>
 
   <div class="footer">
@@ -516,21 +510,8 @@ function lastDelta(){
   const days=Math.max((new Date(last.t)-new Date(prev.t))/864e5,1/24);
   return { gained:last.total-prev.total, perDay:(last.total-prev.total)/days, since:prev.t };
 }
-// Downloads gained by a specific version since the previous snapshot (not cumulative since tracking began)
-function versionGain(tag,current){
-  const a=repoSnaps(); if(a.length<2) return 0;
-  const prev=a[a.length-2];
-  if(!prev.pv || prev.pv[tag]==null) return 0;
-  return current-prev.pv[tag];
-}
-// Downloads gained by a specific asset (within a version) since the previous snapshot
-function assetGain(tag,name,current){
-  const a=repoSnaps(); if(a.length<2) return 0;
-  const prev=a[a.length-2];
-  const key=tag+'::'+name;
-  if(!prev.pa || prev.pa[key]==null) return 0;
-  return current-prev.pa[key];
-}
+// Per-version / per-asset gains now come from snapRange(), which diffs the snapshot
+// pair selected in the Releases section rather than always the previous snapshot.
 // Most recent snapshot-to-snapshot window where this asset's download count increased.
 // We only sample at snapshot times, so this is a window, not an exact download timestamp.
 function lastGrowthWindow(tag,name){
@@ -573,8 +554,9 @@ function render(){
   renderSnapBanner(); renderHead(); renderKPIs(); renderInsights();
   // default group: snapshot view if we have history, else version
   $('cGroup').value = 'version';
-  drawMain(); drawPlat(); drawAdopt(); renderTable(); renderSnapInfo(); renderCompare(); renderFilterInfo();
+  // selects must be populated before renderTable — it reads them for the "Gained" column
   populateSnapSelects(); renderSnapCompare();
+  drawMain(); drawPlat(); drawAdopt(); renderTable(); renderSnapInfo(); renderCompare(); renderFilterInfo();
 }
 
 function renderSnapBanner(){
@@ -754,21 +736,27 @@ function drawStarChart(){
 /* ---------- table ---------- */
 function renderTable(){
   const body=$('relBody'); body.innerHTML='';
+  const range=snapRange(); // null until there are 2+ snapshots and a valid pair is picked
+  const showGain=range && !range.noBaseline;
+  const rangeLabel=range?`${fmtSnapLabel(range.from.t)} → ${fmtSnapLabel(range.to.t)}`:'';
   filteredVersions().forEach((v,i)=>{
     const tr=document.createElement('tr'); tr.className='main';
     const maxShare=S.versions[0]?Math.max(...S.versions.map(x=>x.share)):1;
-    const gain=versionGain(v.version,v.total_downloads);
-    const arrow=gain>0?` <span title="+${fmt(gain)} downloads since your last snapshot" style="color:var(--good);font-weight:800;font-size:12px">▲ ${fmtShort(gain)}</span>`:'';
-    tr.innerHTML=`<td><span class="vtag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>${escapeHtml(v.version)}${v.prerelease?' <span class="pill" style="background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)">pre</span>':''}${arrow}</span></td>
+    const gain=showGain?(range.delta[v.version]||0):null;
+    const gainCell=gain===null
+      ? '<span style="color:var(--faint)">—</span>'
+      : `<span title="${fmt(gain)} downloads between ${escapeHtml(rangeLabel)}" style="color:${gain>0?'var(--good)':'var(--faint)'};font-weight:${gain>0?800:600}">${gain>0?'▲ ':''}${gain>=0?'+':''}${fmt(gain)}</span>`;
+    tr.innerHTML=`<td><span class="vtag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>${escapeHtml(v.version)}${v.prerelease?' <span class="pill" style="background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)">pre</span>':''}</span></td>
       <td>${v.date.toISOString().slice(0,10)}</td>
       <td>${v.age}d</td>
       <td class="num" style="color:var(--accent-2)">${fmt(v.downloads_per_day)}</td>
       <td class="num" style="color:var(--accent)">${fmt(v.total_downloads)}</td>
+      <td class="num">${gainCell}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;max-width:70px;height:7px;background:var(--panel-2);border-radius:99px;overflow:hidden"><span style="display:block;height:100%;width:${maxShare?100*v.share/maxShare:0}%;background:var(--accent)"></span></div><span style="font-size:12px;color:var(--muted);font-weight:700">${v.share}%</span></div></td>`;
     const detail=document.createElement('tr'); detail.className='hidden';
     const assets=[...v.assets].sort((a,b)=>b.count-a.count).map(a=>{
-      const ag=assetGain(v.version,a.name,a.count);
-      const aArrow=ag>0?` <span title="+${fmt(ag)} downloads since your last snapshot" style="color:var(--good);font-weight:800;font-size:11px">▲ ${fmtShort(ag)}</span>`:'';
+      const ag=showGain?(range.aDelta[v.version+'::'+a.name]||0):0;
+      const aArrow=ag>0?` <span title="+${fmt(ag)} downloads between ${escapeHtml(rangeLabel)}" style="color:var(--good);font-weight:800;font-size:11px">▲ ${fmtShort(ag)}</span>`:'';
       let staleMark='';
       if(ag<=0 && repoSnaps().length>=2){
         const w=lastGrowthWindow(v.version,a.name);
@@ -777,7 +765,7 @@ function renderTable(){
       const badge=a.meta?'Auto-update':a.cat; const bc=a.meta?'--other':PLAT[a.cat];
       return `<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}${aArrow}${staleMark}</span><span class="pill" style="background:color-mix(in srgb,var(${bc}) 16%,transparent);color:var(${bc})">${badge}</span></div></div>`;
     }).join('');
-    detail.innerHTML=`<td colspan="6" style="background:var(--panel-2)"><div class="assets">${assets||'No asset data.'}</div></td>`;
+    detail.innerHTML=`<td colspan="7" style="background:var(--panel-2)"><div class="assets">${assets||'No asset data.'}</div></td>`;
     tr.onclick=()=>{ tr.classList.toggle('open'); detail.classList.toggle('hidden'); };
     body.appendChild(tr); body.appendChild(detail);
   });
@@ -833,38 +821,49 @@ function populateSnapSelects(){
   $('cmpFrom').innerHTML=opts; $('cmpTo').innerHTML=opts;
   if(a.length){ $('cmpFrom').value=0; $('cmpTo').value=a.length-1; }
 }
-function renderSnapCompare(){
-  const a=repoSnaps(); const el=$('snapCompareResult');
-  if(a.length<2){ el.innerHTML='<p style="font-size:13px;color:var(--faint);margin:0">Need at least 2 snapshots to compare. Revisit this repo later to build up history.</p>'; return; }
+/* Deltas for the selected snapshot pair. Drives both the KPIs and the Releases
+   table's "Gained" column, so a version and its assets share one baseline. */
+function snapRange(){
+  const a=repoSnaps(); if(a.length<2) return null;
   const i=+$('cmpFrom').value, j=+$('cmpTo').value;
-  if(isNaN(i)||isNaN(j)||i===j){ el.innerHTML='<p style="font-size:13px;color:var(--faint);margin:0">Pick two different snapshots to compare.</p>'; return; }
+  if(isNaN(i)||isNaN(j)||i===j||!a[i]||!a[j]) return null;
   let from=a[i], to=a[j];
   if(new Date(from.t)>new Date(to.t)) [from,to]=[to,from];
   const days=Math.max((new Date(to.t)-new Date(from.t))/864e5,1/24);
-  const gained=to.total-from.total, perDay=gained/days;
-  // Show every version in the newer snapshot, each with its real download delta.
-  const fromPv=from.pv||{}, toPv=to.pv||{};
-  // How many of the newer snapshot's versions actually have a baseline in the older one?
-  // Old snapshots (taken before per-version tracking existed) have no `pv`, so there's
-  // nothing to diff against — surface that instead of a misleading wall of +0 / inflated numbers.
-  const overlap=Object.keys(toPv).filter(t=>fromPv[t]!=null).length;
+  const gained=to.total-from.total;
+  const fromPv=from.pv||{}, toPv=to.pv||{}, fromPa=from.pa||{}, toPa=to.pa||{};
   const dateOf={}; S.versions.forEach(v=>dateOf[v.version]=v.date);
-  const rows=Object.keys(toPv).map(tag=>{
-    const known=fromPv[tag]!=null;
-    const isNew=dateOf[tag]>new Date(from.t); // published after the "from" snapshot → genuinely new
-    const base=known?fromPv[tag]:(isNew?0:toPv[tag]); // unknown & pre-existing baseline → treat as no change
-    return { tag, gained: toPv[tag]-base };
-  }).sort((a,b)=>b.gained-a.gained);
-  const noBaseline = overlap===0 && Object.keys(toPv).length>0;
-  const breakdown = noBaseline
-    ? `<p style="font-size:13px;color:var(--faint);margin:0">The earlier snapshot (${fmtSnapLabel(from.t)}) has no per-version data — it predates per-version tracking — so a per-version breakdown isn't available for this pair. The totals above are still accurate. Newer snapshots will show the full breakdown.</p>`
-    : `<div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Gained</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.tag)}</td><td class="num" style="color:${r.gained>0?'var(--good)':(r.gained<0?'var(--bad)':'var(--faint)')}">${r.gained>=0?'+':''}${fmt(r.gained)}</td></tr>`).join('')}</tbody></table></div>`;
+  // A version published after the "from" snapshot is genuinely new, so its whole count is
+  // a gain. One that already existed but has no baseline (old snapshots predate per-version
+  // tracking) is unknowable — treat as no change rather than inventing the full total.
+  const delta={}, aDelta={};
+  Object.keys(toPv).forEach(tag=>{
+    const known=fromPv[tag]!=null, isNew=dateOf[tag]>new Date(from.t);
+    delta[tag]=toPv[tag]-(known?fromPv[tag]:(isNew?0:toPv[tag]));
+  });
+  Object.keys(toPa).forEach(k=>{
+    const tag=k.slice(0,k.indexOf('::'));
+    const known=fromPa[k]!=null, isNew=dateOf[tag]>new Date(from.t);
+    aDelta[k]=toPa[k]-(known?fromPa[k]:(isNew?0:toPa[k]));
+  });
+  const overlap=Object.keys(toPv).filter(t=>fromPv[t]!=null).length;
+  return { from, to, days, gained, perDay:gained/days, delta, aDelta,
+    noBaseline: overlap===0 && Object.keys(toPv).length>0 };
+}
+function onSnapRangeChange(){ renderSnapCompare(); renderTable(); }
+function renderSnapCompare(){
+  const a=repoSnaps(); const el=$('snapCompareResult'); const ctl=$('snapRangeCtl');
+  const note=t=>`<p style="font-size:13px;color:var(--faint);margin:0 0 14px">${t}</p>`;
+  if(a.length<2){ ctl.classList.add('hidden'); el.innerHTML=note('Need at least 2 snapshots to compare downloads over a range. Revisit this repo later to build up history.'); return; }
+  ctl.classList.remove('hidden');
+  const r=snapRange();
+  if(!r){ el.innerHTML=note('Pick two different snapshots to compare.'); return; }
   el.innerHTML=`
     <div class="kpis" style="margin-bottom:16px">
-      <div class="kpi"><div class="k-bar"></div><div class="k-label">Total gained</div><div class="k-val">${gained>=0?'+':''}${fmt(gained)}</div><div class="k-sub">${fmtSnapLabel(from.t)} → ${fmtSnapLabel(to.t)}</div></div>
-      <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">Avg / day</div><div class="k-val">${fmt(Math.round(perDay))}</div><div class="k-sub">${days<1?'<1 day':Math.round(days)+' day(s)'} apart</div></div>
+      <div class="kpi"><div class="k-bar"></div><div class="k-label">Total gained</div><div class="k-val">${r.gained>=0?'+':''}${fmt(r.gained)}</div><div class="k-sub">${fmtSnapLabel(r.from.t)} → ${fmtSnapLabel(r.to.t)}</div></div>
+      <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">Avg / day</div><div class="k-val">${fmt(Math.round(r.perDay))}</div><div class="k-sub">${r.days<1?'<1 day':Math.round(r.days)+' day(s)'} apart</div></div>
     </div>
-    ${breakdown}`;
+    ${r.noBaseline?note(`The earlier snapshot (${fmtSnapLabel(r.from.t)}) has no per-version data — it predates per-version tracking — so the Gained column isn't available for this pair. The totals above are still accurate.`):''}`;
 }
 function exportSnapshots(){
   const data=JSON.stringify({repo:S.repo,exported:new Date().toISOString(),snapshots:repoSnaps()},null,2);
