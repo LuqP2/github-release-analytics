@@ -47,7 +47,7 @@ Dark / light mode, KPI cards, version adoption chart, platform split donut, rece
 
 1. Open the [live app](https://luqp2.github.io/github-release-analytics/).
 2. Type a repository as `owner/repo` (e.g. `ollama/ollama`) and hit **Analyze**.
-3. *(Optional)* Add a GitHub Personal Access Token to raise the rate limit from 60 to 5,000 requests/hour. The token stays in memory for the session only — never stored, never sent anywhere except the GitHub API.
+3. *(Optional)* Add a GitHub Personal Access Token to raise the rate limit from 60 to 5,000 requests/hour. By default it stays in memory for the session only; check "Remember on this device" to save it in `localStorage` so you don't have to re-enter it. Never sent anywhere except the GitHub API.
 4. Revisit periodically — the more snapshots you accumulate, the more accurate the measured velocity.
 
 You can also deep-link straight to a repo:
@@ -62,7 +62,7 @@ https://luqp2.github.io/github-release-analytics/?repo=ollama/ollama
 
 - 100% client-side. No analytics, no tracking, no server.
 - Snapshots are stored in your browser's `localStorage` and never leave your machine unless you explicitly export them.
-- Tokens are kept in memory only and are sent exclusively to `api.github.com`.
+- Tokens are kept in memory only by default, and sent exclusively to `api.github.com`. If you opt in to "Remember on this device", the token is saved in `localStorage` — only enable this on a device you trust.
 
 ---
 
