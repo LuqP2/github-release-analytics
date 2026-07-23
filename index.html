@@ -432,9 +432,10 @@ function saveSnaps(o){ try{localStorage.setItem(LS.snaps,JSON.stringify(o))}catc
 function saveSnapshot(){
   const o=loadSnaps(); const arr=o[S.repo]||[];
   const last=arr[arr.length-1];
-  const pv={}; S.versions.forEach(v=>pv[v.version]=v.total_downloads);
+  const pv={}, pa={};
+  S.versions.forEach(v=>{ pv[v.version]=v.total_downloads; v.assets.forEach(a=>{ pa[v.version+'::'+a.name]=a.count; }); });
   const snap={ t:new Date().toISOString(), total:S.summary.total,
-    plat:{Windows:S.summary.Windows,Mac:S.summary.Mac,Linux:S.summary.Linux,Android:S.summary.Android,Other:S.summary.Other}, pv };
+    plat:{Windows:S.summary.Windows,Mac:S.summary.Mac,Linux:S.summary.Linux,Android:S.summary.Android,Other:S.summary.Other}, pv, pa };
   // avoid duplicate snapshots within the same hour
   if(last && (new Date(snap.t)-new Date(last.t))<36e5 && last.total===snap.total){ arr[arr.length-1]=snap; }
   else arr.push(snap);
@@ -460,6 +461,14 @@ function versionGain(tag,current){
   const base=a.find(s=>s.pv && s.pv[tag]!=null);
   if(!base) return 0;
   return current-base.pv[tag];
+}
+// Downloads gained by a specific asset (within a version) since tracking began
+function assetGain(tag,name,current){
+  const a=repoSnaps(); if(a.length<2) return 0;
+  const key=tag+'::'+name;
+  const base=a.find(s=>s.pa && s.pa[key]!=null);
+  if(!base) return 0;
+  return current-base.pa[key];
 }
 
 /* ---------- render ---------- */
@@ -652,7 +661,11 @@ function renderTable(){
       <td class="num" style="color:var(--accent)">${fmt(v.total_downloads)}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;max-width:70px;height:7px;background:var(--panel-2);border-radius:99px;overflow:hidden"><span style="display:block;height:100%;width:${maxShare?100*v.share/maxShare:0}%;background:var(--accent)"></span></div><span style="font-size:12px;color:var(--muted);font-weight:700">${v.share}%</span></div></td>`;
     const detail=document.createElement('tr'); detail.className='hidden';
-    const assets=[...v.assets].sort((a,b)=>b.count-a.count).map(a=>`<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}</span><span class="pill" style="background:color-mix(in srgb,var(${PLAT[a.cat]}) 16%,transparent);color:var(${PLAT[a.cat]})">${a.cat}</span></div></div>`).join('');
+    const assets=[...v.assets].sort((a,b)=>b.count-a.count).map(a=>{
+      const ag=assetGain(v.version,a.name,a.count);
+      const aArrow=ag>0?` <span title="+${fmt(ag)} downloads since tracking started" style="color:var(--good);font-weight:800;font-size:11px">▲ ${fmtShort(ag)}</span>`:'';
+      return `<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}${aArrow}</span><span class="pill" style="background:color-mix(in srgb,var(${PLAT[a.cat]}) 16%,transparent);color:var(${PLAT[a.cat]})">${a.cat}</span></div></div>`;
+    }).join('');
     detail.innerHTML=`<td colspan="6" style="background:var(--panel-2)"><div class="assets">${assets||'No asset data.'}</div></td>`;
     tr.onclick=()=>{ tr.classList.toggle('open'); detail.classList.toggle('hidden'); };
     body.appendChild(tr); body.appendChild(detail);
