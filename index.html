@@ -275,7 +275,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
 
     <!-- snapshots -->
     <div class="section">
-      <div class="section-head"><h3>Snapshot history <span class="badge measured" style="vertical-align:middle">the killer feature</span></h3></div>
+      <div class="section-head"><h3>Snapshot history</h3></div>
       <div class="card pad">
         <p style="font-size:13.5px;color:var(--muted);margin:0 0 14px;line-height:1.6">
           GitHub's API only exposes a <b>cumulative</b> download count — no history. Release Radar fixes that with <b>zero backend</b>: every time you analyze a repo, a timestamped snapshot is saved <b>locally in your browser</b>. Come back tomorrow, next week, next month — and the tool computes <b>real measured velocity</b> and plots true downloads-over-time. Export the history as JSON to back it up, sync across machines, or share it.
@@ -406,8 +406,9 @@ function saveSnaps(o){ try{localStorage.setItem(LS.snaps,JSON.stringify(o))}catc
 function saveSnapshot(){
   const o=loadSnaps(); const arr=o[S.repo]||[];
   const last=arr[arr.length-1];
+  const pv={}; S.versions.forEach(v=>pv[v.version]=v.total_downloads);
   const snap={ t:new Date().toISOString(), total:S.summary.total,
-    plat:{Windows:S.summary.Windows,Mac:S.summary.Mac,Linux:S.summary.Linux,Android:S.summary.Android,Other:S.summary.Other} };
+    plat:{Windows:S.summary.Windows,Mac:S.summary.Mac,Linux:S.summary.Linux,Android:S.summary.Android,Other:S.summary.Other}, pv };
   // avoid duplicate snapshots within the same hour
   if(last && (new Date(snap.t)-new Date(last.t))<36e5 && last.total===snap.total){ arr[arr.length-1]=snap; }
   else arr.push(snap);
@@ -426,6 +427,13 @@ function lastDelta(){
   const last=a[a.length-1], prev=a[a.length-2];
   const days=Math.max((new Date(last.t)-new Date(prev.t))/864e5,1/24);
   return { gained:last.total-prev.total, perDay:(last.total-prev.total)/days, since:prev.t };
+}
+// Downloads gained by a specific version since tracking began (first snapshot that recorded it)
+function versionGain(tag,current){
+  const a=repoSnaps(); if(a.length<2) return 0;
+  const base=a.find(s=>s.pv && s.pv[tag]!=null);
+  if(!base) return 0;
+  return current-base.pv[tag];
 }
 
 /* ---------- render ---------- */
@@ -554,7 +562,9 @@ function renderTable(){
   S.versions.forEach((v,i)=>{
     const tr=document.createElement('tr'); tr.className='main';
     const maxShare=S.versions[0]?Math.max(...S.versions.map(x=>x.share)):1;
-    tr.innerHTML=`<td><span class="vtag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>${escapeHtml(v.version)}${v.prerelease?' <span class="pill" style="background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)">pre</span>':''}</span></td>
+    const gain=versionGain(v.version,v.total_downloads);
+    const arrow=gain>0?` <span title="+${fmt(gain)} downloads since tracking started" style="color:var(--good);font-weight:800;font-size:12px">▲ ${fmtShort(gain)}</span>`:'';
+    tr.innerHTML=`<td><span class="vtag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>${escapeHtml(v.version)}${v.prerelease?' <span class="pill" style="background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)">pre</span>':''}${arrow}</span></td>
       <td>${v.date.toISOString().slice(0,10)}</td>
       <td>${v.age}d</td>
       <td class="num" style="color:var(--accent-2)">${fmt(v.downloads_per_day)}</td>
