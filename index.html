@@ -311,6 +311,18 @@ tr.open .vtag svg{transform:rotate(180deg)}
         </div>
       </div>
     </div>
+
+    <!-- compare snapshots -->
+    <div class="section">
+      <div class="section-head"><h3>Compare snapshots</h3></div>
+      <div class="card pad">
+        <div class="controls" style="margin:0 0 16px">
+          <div class="ctl"><label>From</label><select id="cmpFrom" onchange="renderSnapCompare()"></select></div>
+          <div class="ctl"><label>To</label><select id="cmpTo" onchange="renderSnapCompare()"></select></div>
+        </div>
+        <div id="snapCompareResult"></div>
+      </div>
+    </div>
   </div>
 
   <div class="footer">
@@ -528,6 +540,7 @@ function render(){
   // default group: snapshot view if we have history, else version
   $('cGroup').value = repoSnaps().length>=2 ? 'snapshot' : 'version';
   drawMain(); drawPlat(); drawAdopt(); renderTable(); renderSnapInfo(); renderCompare(); renderFilterInfo();
+  populateSnapSelects(); renderSnapCompare();
 }
 
 function renderSnapBanner(){
@@ -768,6 +781,34 @@ function renderSnapInfo(){
   $('snapInfo').innerHTML = a.length<2
     ? `<b>${a.length}</b> snapshot stored for <b>${S.repo}</b>. Velocity becomes "measured" once you have 2+ snapshots taken at different times.`
     : `<b>${a.length}</b> snapshots for <b>${S.repo}</b>, from ${new Date(a[0].t).toLocaleString()} to ${new Date(a[a.length-1].t).toLocaleString()}.`;
+}
+/* ---------- compare snapshots ---------- */
+function fmtSnapLabel(t){ return new Date(t).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function populateSnapSelects(){
+  const a=repoSnaps();
+  const opts=a.map((s,i)=>`<option value="${i}">${fmtSnapLabel(s.t)}</option>`).join('');
+  $('cmpFrom').innerHTML=opts; $('cmpTo').innerHTML=opts;
+  if(a.length){ $('cmpFrom').value=0; $('cmpTo').value=a.length-1; }
+}
+function renderSnapCompare(){
+  const a=repoSnaps(); const el=$('snapCompareResult');
+  if(a.length<2){ el.innerHTML='<p style="font-size:13px;color:var(--faint);margin:0">Need at least 2 snapshots to compare. Revisit this repo later to build up history.</p>'; return; }
+  const i=+$('cmpFrom').value, j=+$('cmpTo').value;
+  if(isNaN(i)||isNaN(j)||i===j){ el.innerHTML='<p style="font-size:13px;color:var(--faint);margin:0">Pick two different snapshots to compare.</p>'; return; }
+  let from=a[i], to=a[j];
+  if(new Date(from.t)>new Date(to.t)) [from,to]=[to,from];
+  const days=Math.max((new Date(to.t)-new Date(from.t))/864e5,1/24);
+  const gained=to.total-from.total, perDay=gained/days;
+  const rows=Object.keys(to.pv||{}).map(tag=>{
+    const f=(from.pv&&from.pv[tag]!=null)?from.pv[tag]:0;
+    return { tag, gained: to.pv[tag]-f };
+  }).filter(r=>r.gained!==0).sort((a,b)=>b.gained-a.gained);
+  el.innerHTML=`
+    <div class="kpis" style="margin-bottom:16px">
+      <div class="kpi"><div class="k-bar"></div><div class="k-label">Total gained</div><div class="k-val">${gained>=0?'+':''}${fmt(gained)}</div><div class="k-sub">${fmtSnapLabel(from.t)} → ${fmtSnapLabel(to.t)}</div></div>
+      <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">Avg / day</div><div class="k-val">${fmt(Math.round(perDay))}</div><div class="k-sub">${days<1?'<1 day':Math.round(days)+' day(s)'} apart</div></div>
+    </div>
+    ${rows.length?`<div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Gained</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.tag)}</td><td class="num" style="color:${r.gained>=0?'var(--good)':'var(--bad)'}">${r.gained>=0?'+':''}${fmt(r.gained)}</td></tr>`).join('')}</tbody></table></div>`:'<p style="font-size:13px;color:var(--faint);margin:0">No per-version change between these snapshots.</p>'}`;
 }
 function exportSnapshots(){
   const data=JSON.stringify({repo:S.repo,exported:new Date().toISOString(),snapshots:repoSnaps()},null,2);

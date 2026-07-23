@@ -14,28 +14,31 @@ GitHub's API only exposes a **cumulative** download count — a single number pe
 
 Release Radar solves the history problem **without a backend**:
 
-### 📈 Velocity Engine — real download tracking, no server
+### Velocity Engine — real download tracking, no server
 Every time you analyze a repo, a timestamped snapshot is saved **locally in your browser**. Revisit later and Release Radar computes **real measured velocity** (not estimated from release dates) and plots true downloads-over-time. Export/import the history as JSON to back it up, sync across machines, or share it.
 
-### 🟢 Per-version and per-asset growth arrows
+### Per-version and per-asset growth arrows
 Versions that gained downloads since your last snapshot are flagged with a green ▲ and the exact delta — so you can see at a glance which releases are still being pulled. Expand a release and the same tracking goes one level deeper: track download growth for every release asset over time, and see exactly how many new downloads each binary gained since your last visit. Assets that have gone quiet get a discreet "last seen" hint instead, showing the last window in which growth was detected.
 
-### ⭐ Star history
+### Star history
 See a repo's star growth as a cumulative chart, plus stats like average stars/day and the day it gained the most. Requires a token with access to the repo (GitHub restricts this data to admins/collaborators as of June 2026), so it works out of the box for your own repos.
 
-### 🧠 Automatic insights
+### Automatic insights
 Most-downloaded release, dominant platform, download momentum (recent vs. older releases), and latest-version adoption — generated automatically, no configuration.
 
-### ⚖️ Multi-repo comparison
+### Multi-repo comparison
 Benchmark total downloads across several repositories side by side.
 
-### 🗂️ Rich breakdowns & exports
+### Rich breakdowns & exports
 Per-version, per-asset breakdown with expanded platform detection (Windows, macOS, Linux, **Android/APK**, snap, flatpak, msix, and more). Export to **CSV**, **JSON**, or **PDF**.
 
-### 🔍 Release filter
+### Release filter
 Narrow the releases table and the download trend chart down to a search term or a date range — useful for zooming into a specific version or release window on repos with a long history.
 
-### ✨ Premium UX
+### Snapshot comparison
+Pick any two snapshots you've taken — down to the exact time of day — and see the total downloads gained between them, the average per day, and a per-version breakdown sorted by growth. Works for any window: 7am vs. 1pm the same day, or three weeks ago vs. today.
+
+### Premium UX
 Dark / light mode, KPI cards, version adoption chart, platform split donut, recent-repo shortcuts, and `?repo=owner/repo` deep-links that auto-load.
 
 ---
