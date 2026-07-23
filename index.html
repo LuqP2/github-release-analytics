@@ -271,7 +271,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
           <div class="controls">
             <button class="iconbtn" onclick="exportCSV()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>CSV</button>
             <button class="iconbtn" onclick="exportJSON()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>JSON</button>
-            <button class="iconbtn" onclick="exportPDF()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>PDF</button>
+            <button class="iconbtn" id="btnPdf" onclick="exportPDF()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>PDF</button>
           </div>
         </div>
         <div class="tbl-wrap"><table id="relTable">
@@ -555,7 +555,7 @@ function render(){
   $('fltSearch').value=''; $('fltFrom').value=''; $('fltTo').value='';
   renderSnapBanner(); renderHead(); renderKPIs(); renderInsights();
   // default group: snapshot view if we have history, else version
-  $('cGroup').value = repoSnaps().length>=2 ? 'snapshot' : 'version';
+  $('cGroup').value = 'version';
   drawMain(); drawPlat(); drawAdopt(); renderTable(); renderSnapInfo(); renderCompare(); renderFilterInfo();
   populateSnapSelects(); renderSnapCompare();
 }
@@ -862,10 +862,61 @@ function exportCSV(){
 function exportJSON(){
   download(`${S.repo.replace('/','-')}-downloads.json`, JSON.stringify({repo:S.repo,summary:S.summary,generated:new Date().toISOString(),versions:S.versions.map(v=>({version:v.version,published:v.date.toISOString(),total:v.total_downloads,installTotal:v.installTotal,metaTotal:v.metaTotal,perDay:v.downloads_per_day,share:v.share,platforms:v.cats,assets:v.assets}))},null,2),'application/json');
 }
+const PDF_MAX_ROWS=60; // rendering hundreds of release rows freezes html2canvas — cap and note it
+// html2canvas's bundled color parser doesn't understand color-mix() — Chrome keeps it
+// literal in computed style instead of resolving to rgb(), which crashes/stalls rasterization.
+// Resolve every color-mix(...) occurrence (incl. var() refs) to a concrete color via canvas.
+function resolveCssColor(raw){
+  const root=getComputedStyle(document.documentElement);
+  const substituted=raw.replace(/var\((--[\w-]+)\)/g,(_,v)=>root.getPropertyValue(v).trim()||'#000');
+  const c=document.createElement('canvas'); c.width=c.height=1;
+  const ctx=c.getContext('2d');
+  try{ ctx.fillStyle='#000'; ctx.fillStyle=substituted; return ctx.fillStyle; }catch(e){ return null; }
+}
+function neutralizeColorMix(root){
+  const CM=/color-mix\([^)]*\)/gi;
+  // inline styles (asset/version pill backgrounds set per-element)
+  root.querySelectorAll('[style*="color-mix("]').forEach(el=>{
+    el.setAttribute('style', el.getAttribute('style').replace(CM,m=>resolveCssColor(m)||'transparent'));
+  });
+  // stylesheet-driven rules (.badge, .msg, .snap-banner, etc.) — override with resolved
+  // colors at equal specificity, inserted after the original so cascade order wins.
+  const css=[...document.styleSheets].map(s=>{ try{return [...s.cssRules].map(r=>r.cssText).join('\n')}catch(e){return ''} }).join('\n');
+  if(CM.test(css)){
+    CM.lastIndex=0;
+    const overrideCss=css.replace(CM,m=>resolveCssColor(m)||'transparent');
+    const style=document.createElement('style'); style.id='pdfColorOverride'; style.textContent=overrideCss;
+    document.head.appendChild(style);
+    return style;
+  }
+  return null;
+}
 function exportPDF(){
   if(typeof html2pdf==='undefined'){ alert('PDF library still loading.'); return; }
-  const el=$('exportContent');
-  html2pdf().set({ margin:8, filename:`${S.repo.replace('/','-')}-report.pdf`, image:{type:'jpeg',quality:.98}, html2canvas:{scale:2,backgroundColor:cssVar('--bg')||'#fff'}, jsPDF:{unit:'mm',format:'a4',orientation:'landscape'}, pagebreak:{mode:['avoid-all','css','legacy']} }).from(el).save();
+  const btn=$('btnPdf'); const orig=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='Generating…';
+  // let the "Generating…" state paint before the heavy synchronous rasterization starts
+  setTimeout(()=>{
+    const clone=$('exportContent').cloneNode(true);
+    // drop already-collapsed detail rows: invisible, but html2canvas still walks them
+    clone.querySelectorAll('tr.hidden').forEach(n=>n.remove());
+    const rows=[...clone.querySelectorAll('#relBody > tr.main')];
+    if(rows.length>PDF_MAX_ROWS){
+      rows.slice(PDF_MAX_ROWS).forEach(r=>r.remove());
+      const note=document.createElement('div');
+      note.style.cssText='padding:8px 4px;font-size:12px;color:var(--faint)';
+      note.textContent=`Showing top ${PDF_MAX_ROWS} of ${rows.length} releases (sorted as on screen). Use CSV/JSON export for the full dataset.`;
+      clone.querySelector('.tbl-wrap')?.insertAdjacentElement('afterend',note);
+    }
+    clone.removeAttribute('id'); // avoid a duplicate #exportContent while the clone is mounted
+    clone.style.cssText='position:fixed;left:-99999px;top:0;width:1400px';
+    document.body.appendChild(clone);
+    const overrideStyle=neutralizeColorMix(clone);
+    html2pdf().set({ margin:8, filename:`${S.repo.replace('/','-')}-report.pdf`, image:{type:'jpeg',quality:.98}, html2canvas:{scale:1.5,backgroundColor:cssVar('--bg')||'#fff'}, jsPDF:{unit:'mm',format:'a4',orientation:'landscape'}, pagebreak:{mode:['avoid-all','css','legacy']} })
+      .from(clone).save()
+      .catch(e=>{ msg('Could not generate PDF: '+e.message,'err'); })
+      .finally(()=>{ clone.remove(); overrideStyle?.remove(); btn.disabled=false; btn.innerHTML=orig; });
+  },30);
 }
 function download(name,content,type){ const b=new Blob([content],{type}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(u),1000); }
 
