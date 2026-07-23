@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <title>GitHub Release Download Analytics</title>
+</head>
+<body class="bg-gray-100 text-gray-900 p-4 sm:p-8 font-sans">
+    <div class="max-w-7xl mx-auto bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <h1 class="text-2xl font-bold mb-2">GitHub Release Download Analytics</h1>
+        <p class="mb-6 text-gray-600">Pull download stats directly from any public GitHub repository's releases, chart them, and export a PDF report.</p>
+
+        <div class="mb-8 p-4 border border-gray-200 rounded-lg bg-gray-50 shadow-sm">
+            <h3 class="text-sm font-bold text-gray-800 mb-2">Fetch from GitHub</h3>
+
+            <label class="block text-xs text-gray-500 mb-1">Repository (owner/repo)</label>
+            <input type="text" id="repoInput" placeholder="owner/repo" class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 mb-3">
+
+            <label class="block text-xs text-gray-500 mb-1">GitHub Personal Access Token (Optional) — to avoid rate limits</label>
+            <input type="password" id="tokenInput" placeholder="ghp_..." autocomplete="off" class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 mb-1">
+            <p class="text-xs text-gray-400 mb-3">Without a token: 60 requests/hour per IP. With a token: 5,000 requests/hour. The token is kept in memory only for this session — it is never stored or sent anywhere other than the GitHub API.</p>
+
+            <button id="fetchBtn" onclick="fetchGitHubReleases()" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-semibold py-2 px-4 rounded-lg text-sm transition-colors shadow">
+                Fetch Data from API
+            </button>
+
+            <div id="error-box" class="hidden mt-3 p-3 rounded-lg text-sm border"></div>
+            <div id="truncation-warning" class="hidden mt-3 p-3 rounded-lg text-sm bg-yellow-50 text-yellow-800 border border-yellow-200">
+                Reached the maximum of 1000 releases fetched (10 pages). Older history may be truncated.
+            </div>
+        </div>
+
+        <div id="controls-section" class="hidden mb-8 p-4 bg-gray-50 border border-gray-200 rounded-lg flex flex-wrap items-end gap-4">
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Group By</label>
+                <select id="chartGroup" onchange="updateChart()" class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                    <option value="version">By Version</option>
+                    <option value="month">By Date (Month)</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Chart Type</label>
+                <select id="chartType" onchange="updateChart()" class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                    <option value="line">Line Chart</option>
+                    <option value="pie">Pie Chart</option>
+                    <option value="bar">Bar Chart</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Metric</label>
+                <select id="chartMetric" onchange="updateChart()" class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                    <option value="total_downloads">Total Downloads</option>
+                    <option value="downloads_per_day">Speed: Downloads / Day</option>
+                    <option value="windows">Windows (Total)</option>
+                    <option value="mac">Mac (Total)</option>
+                    <option value="linux">Linux (Total)</option>
+                    <option value="other">Other (Total)</option>
+                </select>
+            </div>
+            <button onclick="exportToPDF()" class="ml-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-5 rounded-lg text-sm transition-colors shadow-sm">
+                Export to PDF
+            </button>
+        </div>
+
+        <!-- Wraps chart and table together for export -->
+        <div id="export-content">
+            <div id="chart-container-export" class="hidden mb-10 p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
+                <h2 id="chart-title" class="text-xl font-bold text-gray-800 mb-4 text-center">Download Performance</h2>
+                <div class="relative w-full h-96">
+                    <canvas id="myChart"></canvas>
+                </div>
+            </div>
+
+            <div id="output" class="hidden">
+                <!-- Report injected here via JS -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let globalVersions = [];
+        let chartInstance = null;
+
+        function detectPlatform(filename) {
+            const f = filename.toLowerCase();
+            // Order matters: check compound/more specific extensions first
+            if (f.endsWith('.app.zip')) return 'Mac';
+            if (f.endsWith('.tar.gz')) return 'Linux';
+            if (f.endsWith('.dmg') || f.endsWith('.pkg')) return 'Mac';
+            if (f.endsWith('.appimage') || f.endsWith('.deb') || f.endsWith('.rpm')) return 'Linux';
+            if (f.endsWith('.exe') || f.endsWith('.msi') || f.endsWith('.zip') || f.endsWith('.rar') || f.endsWith('.7z')) return 'Windows';
+            return 'Other';
+        }
+
+        function showError(message) {
+            const box = document.getElementById('error-box');
+            box.textContent = message;
+            box.className = 'mt-3 p-3 rounded-lg text-sm border bg-red-50 text-red-700 border-red-200';
+            box.classList.remove('hidden');
+        }
+
+        function clearError() {
+            const box = document.getElementById('error-box');
+            box.classList.add('hidden');
+            box.textContent = '';
+        }
+
+        async function fetchGitHubReleases() {
+            clearError();
+            document.getElementById('truncation-warning').classList.add('hidden');
+
+            const repoInput = document.getElementById('repoInput').value.trim();
+            const repoPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+            if (!repoPattern.test(repoInput)) {
+                showError('Please enter a valid repository in the format owner/repo (e.g. facebook/react).');
+                return;
+            }
+
+            const token = document.getElementById('tokenInput').value.trim();
+
+            const btn = document.getElementById('fetchBtn');
+            const originalText = btn.innerText;
+            btn.innerText = 'Loading (this can take a few seconds)...';
+            btn.disabled = true;
+
+            try {
+                let allReleases = [];
+                let page = 1;
+                let keepFetching = true;
+                let truncated = false;
+
+                const headers = { 'Accept': 'application/vnd.github+json' };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                // Pagination: fetch up to 10 pages (1000 releases) to cover full history
+                while (keepFetching) {
+                    const response = await fetch(`https://api.github.com/repos/${repoInput}/releases?per_page=100&page=${page}`, { headers });
+
+                    if (!response.ok) {
+                        if (response.status === 404) throw new Error('NOT_FOUND');
+                        if (response.status === 403) throw new Error('RATE_LIMIT');
+                        throw new Error('HTTP_' + response.status);
+                    }
+
+                    const data = await response.json();
+
+                    if (data.length === 0) {
+                        keepFetching = false;
+                    } else {
+                        allReleases = allReleases.concat(data);
+                        page++;
+                    }
+                    if (page > 10) {
+                        keepFetching = false;
+                        if (!(data && data.length === 0)) truncated = true;
+                    }
+                }
+
+                const releasesWithAssets = allReleases.filter(r => r.assets && r.assets.length > 0);
+                if (releasesWithAssets.length === 0) {
+                    throw new Error('NO_ASSETS');
+                }
+
+                // Map GitHub's JSON into the format the table understands
+                const rawVersions = releasesWithAssets.map(release => {
+                    let current = {
+                        version: release.tag_name,
+                        date: new Date(release.published_at),
+                        categories: { Windows: 0, Mac: 0, Linux: 0, Other: 0 },
+                        rawAssets: []
+                    };
+
+                    release.assets.forEach(asset => {
+                        const filename = asset.name;
+                        const count = asset.download_count;
+                        const category = detectPlatform(filename);
+
+                        current.rawAssets.push({ name: filename, count: count, category: category });
+                        current.categories[category] += count;
+                    });
+                    return current;
+                });
+
+                if (truncated) {
+                    document.getElementById('truncation-warning').classList.remove('hidden');
+                }
+
+                btn.innerText = originalText;
+                btn.disabled = false;
+                calculateMetricsAndRender(rawVersions);
+
+            } catch (e) {
+                btn.innerText = originalText;
+                btn.disabled = false;
+
+                if (e.message === 'NOT_FOUND') {
+                    showError('Repository not found. Double-check the owner/repo spelling.');
+                } else if (e.message === 'RATE_LIMIT') {
+                    showError('GitHub API rate limit exceeded. Add a Personal Access Token above to raise the limit to 5,000 requests/hour.');
+                } else if (e.message === 'NO_ASSETS') {
+                    showError('This repository has no releases with attached files (assets) to analyze.');
+                } else {
+                    showError('Error: ' + e.message);
+                }
+            }
+        }
+
+        function calculateMetricsAndRender(rawVersions) {
+            let versions = rawVersions.filter(v => v.date instanceof Date && !isNaN(v.date.getTime())).sort((a, b) => b.date - a.date);
+
+            if (versions.length === 0) {
+                showError('No valid release dates were found in the data returned by GitHub.');
+                return;
+            }
+
+            const today = new Date();
+            const months = {};
+            const summary = { Windows: 0, Mac: 0, Linux: 0, Other: 0, total: 0 };
+
+            versions.forEach((v, i) => {
+                const nextDate = (i === 0) ? today : versions[i - 1].date;
+                const diffTime = Math.abs(nextDate.getTime() - v.date.getTime());
+                v.days_live = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+                v.windows = v.categories.Windows;
+                v.mac = v.categories.Mac;
+                v.linux = v.categories.Linux;
+                v.other = v.categories.Other;
+                v.total_downloads = v.windows + v.mac + v.linux + v.other;
+
+                v.downloads_per_day = v.days_live > 0 ? parseFloat((v.total_downloads / v.days_live).toFixed(1)) : v.total_downloads;
+
+                const monthKey = v.date.toISOString().slice(0, 7);
+                v.monthKey = monthKey;
+                if (!months[monthKey]) months[monthKey] = [];
+                months[monthKey].push(v);
+
+                summary.Windows += v.windows;
+                summary.Mac += v.mac;
+                summary.Linux += v.linux;
+                summary.Other += v.other;
+                summary.total += v.total_downloads;
+            });
+
+            globalVersions = versions;
+
+            document.getElementById('controls-section').classList.remove('hidden');
+            document.getElementById('chart-container-export').classList.remove('hidden');
+
+            try {
+                if (typeof Chart !== 'undefined') {
+                    updateChart();
+                } else {
+                    document.getElementById('chart-container-export').classList.add('hidden');
+                }
+            } catch (e) {
+                console.error('Could not render chart: ', e);
+                document.getElementById('chart-container-export').classList.add('hidden');
+            }
+
+            renderOutput(months, summary);
+        }
+
+        function updateChart() {
+            if (globalVersions.length === 0 || typeof Chart === 'undefined') return;
+
+            const group = document.getElementById('chartGroup').value;
+            const type = document.getElementById('chartType').value;
+            const metric = document.getElementById('chartMetric').value;
+            const metricLabel = document.getElementById('chartMetric').options[document.getElementById('chartMetric').selectedIndex].text;
+
+            let labels = [];
+            let data = [];
+
+            // Chronological order for charts (oldest to newest)
+            const sortedVersions = [...globalVersions].sort((a, b) => a.date - b.date);
+
+            if (group === 'version') {
+                labels = sortedVersions.map(v => v.version);
+                data = sortedVersions.map(v => v[metric]);
+            } else if (group === 'month') {
+                const monthData = {};
+                sortedVersions.forEach(v => {
+                    if (!monthData[v.monthKey]) monthData[v.monthKey] = 0;
+                    monthData[v.monthKey] += v[metric];
+                });
+                labels = Object.keys(monthData);
+                data = Object.values(monthData);
+            }
+
+            document.getElementById('chart-title').innerText = `${metricLabel} - ${group === 'version' ? 'By Version' : 'By Month'}`;
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const ctx = document.getElementById('myChart').getContext('2d');
+
+            const colors = [
+                'rgba(59, 130, 246, 0.7)', 'rgba(16, 185, 129, 0.7)', 'rgba(245, 158, 11, 0.7)',
+                'rgba(239, 68, 68, 0.7)', 'rgba(139, 92, 246, 0.7)', 'rgba(236, 72, 153, 0.7)',
+                'rgba(20, 184, 166, 0.7)', 'rgba(249, 115, 22, 0.7)', 'rgba(99, 102, 241, 0.7)'
+            ];
+
+            const borderColors = colors.map(c => c.replace('0.7', '1'));
+
+            chartInstance = new Chart(ctx, {
+                type: type,
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: metricLabel,
+                        data: data,
+                        backgroundColor: type === 'pie' ? colors : 'rgba(59, 130, 246, 0.2)',
+                        borderColor: type === 'pie' ? borderColors : 'rgba(59, 130, 246, 1)',
+                        borderWidth: 2,
+                        fill: type === 'line',
+                        tension: 0.3,
+                        pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: type === 'pie',
+                            position: 'right'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            display: type !== 'pie',
+                            beginAtZero: true
+                        },
+                        x: {
+                            display: type !== 'pie'
+                        }
+                    }
+                }
+            });
+        }
+
+        function exportToPDF() {
+            if (typeof html2pdf === 'undefined') {
+                alert('The PDF library is still loading or was blocked.');
+                return;
+            }
+
+            const element = document.getElementById('export-content');
+            const metric = document.getElementById('chartMetric').options[document.getElementById('chartMetric').selectedIndex].text.replace(/\s+/g, '-').toLowerCase();
+
+            const opt = {
+                margin: 10,
+                filename: `download-report-${metric}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, backgroundColor: '#ffffff' },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            };
+
+            const chartDiv = document.getElementById('chart-container-export').querySelector('div.relative');
+            chartDiv.classList.remove('h-96');
+            chartDiv.classList.add('h-[500px]');
+
+            html2pdf().set(opt).from(element).save().then(() => {
+                chartDiv.classList.remove('h-[500px]');
+                chartDiv.classList.add('h-96');
+            });
+        }
+
+        function renderOutput(months, summary) {
+            const output = document.getElementById('output');
+            output.innerHTML = `
+                <div class="mb-10 p-5 bg-blue-50 border border-blue-200 rounded-xl shadow-sm">
+                    <h2 class="text-xl font-bold text-blue-900 mb-4">Grand Total (All Versions)</h2>
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm text-center">
+                        <div class="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
+                            <p class="text-gray-500 font-medium mb-1">Total Downloads</p>
+                            <p class="text-3xl font-bold text-blue-700">${summary.total}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
+                            <p class="text-gray-500 font-medium mb-1">Windows</p>
+                            <p class="text-3xl font-bold text-gray-800">${summary.Windows}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
+                            <p class="text-gray-500 font-medium mb-1">Mac</p>
+                            <p class="text-3xl font-bold text-gray-800">${summary.Mac}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
+                            <p class="text-gray-500 font-medium mb-1">Linux</p>
+                            <p class="text-3xl font-bold text-gray-800">${summary.Linux}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
+                            <p class="text-gray-500 font-medium mb-1">Other</p>
+                            <p class="text-3xl font-bold text-gray-800">${summary.Other}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            output.classList.remove('hidden');
+
+            const sortedMonths = Object.keys(months).sort((a, b) => b.localeCompare(a));
+
+            sortedMonths.forEach(month => {
+                const divMonth = document.createElement('div');
+                divMonth.className = 'mb-10 overflow-x-auto';
+                divMonth.innerHTML = `<h2 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">Month: ${month}</h2>`;
+
+                const table = document.createElement('table');
+                table.className = 'min-w-full bg-white text-sm text-left whitespace-nowrap';
+                table.innerHTML = `
+                    <thead class="bg-gray-50 text-gray-600 uppercase text-xs font-semibold">
+                        <tr>
+                            <th class="py-3 px-4 border-b">Version</th>
+                            <th class="py-3 px-4 border-b">Published</th>
+                            <th class="py-3 px-4 border-b">Days Live</th>
+                            <th class="py-3 px-4 border-b">Downloads/Day</th>
+                            <th class="py-3 px-4 border-b">Total Downloads</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                    </tbody>
+                `;
+
+                const tbody = table.querySelector('tbody');
+
+                months[month].forEach((v, index) => {
+                    const rowId = `detail-${month}-${index}`;
+
+                    const tr = document.createElement('tr');
+                    tr.className = 'border-b hover:bg-blue-50 transition-colors cursor-pointer';
+                    tr.onclick = () => document.getElementById(rowId).classList.toggle('hidden');
+                    tr.innerHTML = `
+                        <td class="py-3 px-4 font-medium text-blue-700 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            ${v.version}
+                        </td>
+                        <td class="py-3 px-4">${v.date.toISOString().slice(0, 10)}</td>
+                        <td class="py-3 px-4">${v.days_live}</td>
+                        <td class="py-3 px-4 font-bold text-purple-700">${v.downloads_per_day}</td>
+                        <td class="py-3 px-4 font-bold text-indigo-700">${v.total_downloads}</td>
+                    `;
+                    tbody.appendChild(tr);
+
+                    // Hidden detail row with per-file breakdown by platform
+                    const trDetail = document.createElement('tr');
+                    trDetail.id = rowId;
+                    trDetail.className = 'hidden bg-slate-50 border-b shadow-inner';
+
+                    const categoryColors = {
+                        Windows: 'bg-blue-100 text-blue-700',
+                        Mac: 'bg-gray-200 text-gray-700',
+                        Linux: 'bg-orange-100 text-orange-700',
+                        Other: 'bg-purple-100 text-purple-700'
+                    };
+
+                    let assetsHtml = '<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">';
+                    if (v.rawAssets && v.rawAssets.length > 0) {
+                        v.rawAssets.sort((a, b) => b.count - a.count).forEach(a => {
+                            const badgeClass = categoryColors[a.category] || categoryColors.Other;
+                            assetsHtml += `
+                                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                                    <span class="text-xs font-medium text-gray-600 break-all mb-1">${a.name}</span>
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-sm text-blue-600 font-bold">${a.count} <span class="text-xs text-gray-400 font-normal">downloads</span></span>
+                                        <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeClass}">${a.category}</span>
+                                    </div>
+                                </div>`;
+                        });
+                    } else {
+                        assetsHtml += `<div class="text-gray-500 text-sm">No detailed asset data.</div>`;
+                    }
+                    assetsHtml += '</div>';
+
+                    trDetail.innerHTML = `
+                        <td colspan="5" class="py-4 px-6 bg-gray-100/50">
+                            <div class="font-bold text-gray-800 mb-3 text-sm">Files for Version ${v.version}</div>
+                            ${assetsHtml}
+                        </td>
+                    `;
+                    tbody.appendChild(trDetail);
+                });
+
+                divMonth.appendChild(table);
+                output.appendChild(divMonth);
+            });
+        }
+    </script>
+</body>
+</html>
