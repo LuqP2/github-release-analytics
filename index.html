@@ -177,7 +177,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
         <label>GitHub Personal Access Token — optional</label>
         <input id="tokenInput" type="password" placeholder="ghp_..." autocomplete="off">
       </div>
-      <p class="hint">Without a token: 60 requests/hour per IP. With a token: 5,000/hour. The token stays in memory for this session only — never stored, never sent anywhere except the GitHub API.</p>
+      <p class="hint">Without a token: 60 requests/hour per IP. With a token: 5,000/hour. Also needed for full <b>Star History</b> on repos you don't own — GitHub restricts that data to admins/collaborators. The token stays in memory for this session only — never stored, never sent anywhere except the GitHub API.</p>
     </div>
     <div id="recentChips" class="chips"></div>
     <div id="msg" class="msg"></div>
@@ -201,6 +201,14 @@ tr.open .vtag svg{transform:rotate(180deg)}
     <div class="insights">
       <h3>Insights</h3>
       <div id="insGrid" class="ins-grid"></div>
+    </div>
+
+    <!-- star history -->
+    <div class="section">
+      <div class="section-head"><h3>Star history</h3></div>
+      <div id="starMsg" class="msg"></div>
+      <div id="starStats" class="kpis" style="margin-bottom:14px"></div>
+      <div class="card chart-box hidden" id="starChartCard"><div class="chart-h"><canvas id="starChart"></canvas></div></div>
     </div>
 
     <div id="exportContent">
@@ -298,7 +306,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
 
 <script>
 /* ---------- state ---------- */
-const S = { repo:null, meta:null, versions:[], summary:null, months:{}, mainChart:null, platChart:null, adoptChart:null };
+const S = { repo:null, meta:null, versions:[], summary:null, months:{}, mainChart:null, platChart:null, adoptChart:null, starChart:null, starSeries:null };
 const LS = { snaps:'rr_snaps_v1', recent:'rr_recent_v1', theme:'rr_theme_v1', cmp:'rr_cmp_v1' };
 const $ = id => document.getElementById(id);
 const fmt = n => (n==null?'—':n.toLocaleString('en-US'));
@@ -306,7 +314,8 @@ const fmtShort = n => { n=+n||0; if(n>=1e6)return (n/1e6).toFixed(1)+'M'; if(n>=
 
 /* ---------- theme ---------- */
 function applyTheme(t){ document.documentElement.setAttribute('data-theme',t); try{localStorage.setItem(LS.theme,t)}catch(e){}
-  if(S.mainChart){drawMain();drawPlat();drawAdopt();} }
+  if(S.mainChart){drawMain();drawPlat();drawAdopt();}
+  if(S.starChart)drawStarChart(); }
 function toggleTheme(){ applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); }
 (function(){ let t='light'; try{t=localStorage.getItem(LS.theme)|| (matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){} applyTheme(t); })();
 
@@ -350,6 +359,22 @@ async function fetchMeta(repo){
   try{ const r=await fetch(`https://api.github.com/repos/${repo}`,{headers:headers()}); if(!r.ok)return null; return await r.json(); }catch(e){ return null; }
 }
 
+/* GitHub restricted the timestamped stargazers endpoint (June 2026) to repo admins/collaborators —
+   works only when the supplied token has access to this specific repo. */
+async function fetchStarHistory(repo){
+  let all=[],page=1,truncated=false;
+  const h={'Accept':'application/vnd.github.star+json'}; const t=$('tokenInput').value.trim(); if(t)h['Authorization']='Bearer '+t;
+  while(true){
+    const r=await fetch(`https://api.github.com/repos/${repo}/stargazers?per_page=100&page=${page}`,{headers:h});
+    if(!r.ok){ if(r.status===404||r.status===403||r.status===401) throw new Error('STARS_RESTRICTED'); throw new Error('HTTP_'+r.status); }
+    const d=await r.json();
+    if(!d.length) break;
+    all=all.concat(d); page++;
+    if(page>60){ truncated=true; break; } // cap ~6,000 stars fetched
+  }
+  return {all,truncated};
+}
+
 async function run(){
   clearMsg();
   const repo=$('repoInput').value.trim().replace(/^https?:\/\/github\.com\//,'').replace(/\/$/,'');
@@ -366,6 +391,7 @@ async function run(){
     pushRecent(repo);
     setUrl(repo);
     render();
+    loadStarHistory(repo);
     if(rel.truncated) msg('Showing the 1000 most recent releases. Older history was truncated.','warn');
   }catch(e){
     const map={NOT_FOUND:'Repository not found. Check the owner/repo spelling.',RATE_LIMIT:'GitHub rate limit hit. Add a token above to raise it to 5,000/hour.',NO_ASSETS:'This repo has no releases with attached files (assets) to analyze.'};
@@ -554,6 +580,61 @@ function drawAdopt(){
     options:{ indexAxis:'y', responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.parsed.x)} downloads · ${top[c.dataIndex].share}%`}}},
       scales:{x:{beginAtZero:true,grid:{color:cssVar('--border')},ticks:{color:cssVar('--muted'),callback:v=>fmtShort(v)}},y:{grid:{display:false},ticks:{color:cssVar('--muted')}}} } });
+}
+
+/* ---------- star history ---------- */
+async function loadStarHistory(repo){
+  $('starMsg').className='msg';
+  $('starStats').innerHTML='<div class="skeleton" style="height:90px"></div><div class="skeleton" style="height:90px"></div><div class="skeleton" style="height:90px"></div>';
+  $('starChartCard').classList.add('hidden');
+  try{
+    const {all,truncated}=await fetchStarHistory(repo);
+    if(repo!==S.repo) return; // user moved on to another repo while this was in flight
+    if(!all.length) throw new Error('NO_STARS');
+    const dates=all.map(x=>new Date(x.starred_at)).sort((a,b)=>a-b);
+    const stats=computeStarStats(dates);
+    S.starSeries=buildCumulativeSeries(dates);
+    renderStarStats(stats,truncated);
+    drawStarChart();
+  }catch(e){
+    if(repo!==S.repo) return;
+    $('starStats').innerHTML='';
+    const map={ STARS_RESTRICTED:"GitHub restricts full star history to repositories you own or collaborate on (since June 2026). Add a Personal Access Token above with access to this repo, then click Analyze again.", NO_STARS:'This repository has no stars yet.' };
+    const m=$('starMsg'); m.textContent=map[e.message]||('Could not load star history: '+e.message); m.className='msg warn';
+  }
+}
+function computeStarStats(dates){
+  const first=dates[0], last=dates[dates.length-1];
+  const days=Math.max(1,Math.round((last-first)/864e5));
+  const byDay={};
+  dates.forEach(d=>{ const k=d.toISOString().slice(0,10); byDay[k]=(byDay[k]||0)+1; });
+  let maxDay=null,maxCount=0;
+  Object.entries(byDay).forEach(([k,v])=>{ if(v>maxCount){maxCount=v;maxDay=k;} });
+  return { total:dates.length, days, avgPerDay:+(dates.length/days).toFixed(3), daysWithStars:Object.keys(byDay).length, maxCount, maxDay };
+}
+function buildCumulativeSeries(dates){
+  const byDay={};
+  dates.forEach(d=>{ const k=d.toISOString().slice(0,10); byDay[k]=(byDay[k]||0)+1; });
+  const days=Object.keys(byDay).sort();
+  let cum=0; return days.map(k=>{ cum+=byDay[k]; return {x:k,y:cum}; });
+}
+function renderStarStats(stats,truncated){
+  $('starStats').innerHTML=`
+    <div class="kpi"><div class="k-bar"></div><div class="k-label">Total stars</div><div class="k-val">${fmt(stats.total)}</div>${truncated?'<div class="k-sub">truncated at '+fmt(stats.total)+'</div>':''}</div>
+    <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">Days tracked</div><div class="k-val">${fmt(stats.days)}</div></div>
+    <div class="kpi"><div class="k-bar" style="background:var(--accent-2)"></div><div class="k-label">Avg stars / day</div><div class="k-val">${stats.avgPerDay}</div></div>
+    <div class="kpi"><div class="k-bar" style="background:var(--warn)"></div><div class="k-label">Days with stars</div><div class="k-val">${fmt(stats.daysWithStars)}</div></div>
+    <div class="kpi"><div class="k-bar" style="background:var(--bad)"></div><div class="k-label">Max stars in one day</div><div class="k-val">${fmt(stats.maxCount)}</div></div>
+    <div class="kpi"><div class="k-bar" style="background:var(--accent)"></div><div class="k-label">Day with most stars</div><div class="k-val" style="font-size:18px">${stats.maxDay}</div></div>`;
+}
+function drawStarChart(){
+  $('starChartCard').classList.remove('hidden');
+  if(S.starChart) S.starChart.destroy();
+  const good=cssVar('--good');
+  S.starChart=new Chart($('starChart'),{ type:'line',
+    data:{ labels:S.starSeries.map(p=>p.x), datasets:[{ label:'Stars', data:S.starSeries.map(p=>p.y),
+      borderColor:good, backgroundColor:'color-mix(in srgb, '+good+' 15%, transparent)', borderWidth:2, fill:true, tension:.25, pointRadius:0, pointHoverRadius:4 }] },
+    options: baseOpts(false) });
 }
 
 /* ---------- table ---------- */
