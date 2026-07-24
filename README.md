@@ -17,6 +17,19 @@ Release Radar solves the history problem **without a backend**:
 ### Velocity Engine — real download tracking, no server
 Every time you analyze a repo, a timestamped snapshot is saved **locally in your browser**. Revisit later and Release Radar computes **real measured velocity** (not estimated from release dates) and plots true downloads-over-time. Export/import the history as JSON to back it up, sync across machines, or share it.
 
+Snapshots store per-asset counts, so history is re-read under the current classification rules rather than frozen at write time: **installer-only history and update-channel history reach back to your very first snapshot**, and correcting a platform later fixes the whole series at once.
+
+### Installers vs. update traffic
+An app that ships auto-updates publishes `latest.yml` and `.blockmap` files next to its installers, and every running client re-downloads them — on many repos they are **80% of the "total downloads" number**. Release Radar counts **installers by default** and splits the rest into what it actually is:
+
+- **Update checks** — `latest*.yml`, fetched every time an installed app polls the update feed.
+- **In-app updates** — `.blockmap`/`.zsync` differential payloads, fetched only when a client actually installs an update.
+- **Verification** — checksums and signatures.
+
+Blockmaps are paired to their installer by filename, so every release also gets a **direct-download vs. in-app-update** split, per platform: 15 downloads of `App.exe` against 10 of `App.exe.blockmap` means 10 people updated through the app and 5 came from the link. Flip the **Installers only / All files** toggle to switch every number on the page between the two definitions.
+
+All of it is auto-detected — repos without an update feed never see any of this, and their numbers are identical in both modes.
+
 ### Per-version and per-asset growth arrows
 Versions that gained downloads since your last snapshot are flagged with a green ▲ and the exact delta — so you can see at a glance which releases are still being pulled. Expand a release and the same tracking goes one level deeper: track download growth for every release asset over time, and see exactly how many new downloads each binary gained since your last visit. Assets that have gone quiet get a discreet "last seen" hint instead, showing the last window in which growth was detected.
 
@@ -30,7 +43,11 @@ Most-downloaded release, dominant platform, download momentum (recent vs. older 
 Benchmark total downloads across several repositories side by side.
 
 ### Rich breakdowns & exports
-Per-version, per-asset breakdown with expanded platform detection (Windows, macOS, Linux, **Android/APK**, snap, flatpak, msix, and more). Export to **CSV**, **JSON**, or **PDF**.
+Per-version, per-asset breakdown with expanded platform detection (Windows, macOS, Linux, **Android/APK**, snap, flatpak, msix, and more), grouped so the installers sit above the update traffic. Detection matches **whole filename tokens**, not substrings — `Ollama-darwin.zip` is macOS, not Windows — and reports architecture where the name carries it.
+
+An archive that names no platform at all (`App-1.2.3-arm64.zip` could be anything) is labelled **Unknown** rather than guessed. Click the badge to assign one: the choice is stored as a filename pattern, so it applies to that asset across every release, past and future, including your snapshot history.
+
+Export to **CSV**, **JSON**, or **PDF**.
 
 ### Release filter
 Narrow the releases table and the download trend chart down to a search term or a date range — useful for zooming into a specific version or release window on repos with a long history.
@@ -70,6 +87,8 @@ https://luqp2.github.io/github-release-analytics/?repo=ollama/ollama
 ## Tech
 
 Single static `index.html` — [Chart.js](https://www.chartjs.org/) for charts and [html2pdf.js](https://github.com/eKoopmans/html2pdf.js) for PDF export, both loaded from a CDN. No build step, deployable on any static host (GitHub Pages).
+
+There is no test runner, so the asset classifier ships with its own corpus of real release filenames: open the app at `#selftest` and read the console.
 
 ## License
 

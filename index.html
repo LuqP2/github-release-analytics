@@ -123,8 +123,22 @@ tr.open .vtag svg{transform:rotate(180deg)}
 .assets{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;padding:6px 2px}
 .asset{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
 .asset .an{font-size:12px;color:var(--muted);word-break:break-all;margin-bottom:7px;font-weight:600}
-.asset .ab{display:flex;justify-content:space-between;align-items:center}
+.asset .ab{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .asset .ac{font-weight:800;color:var(--accent);font-size:14px}
+.asset .split{font-size:11px;color:var(--faint);margin-top:6px;font-weight:600}
+.kgroup{grid-column:1/-1;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);padding:8px 2px 0}
+.kgroup:first-child{padding-top:2px}
+.pill.act{cursor:pointer;border-bottom:1px dotted currentColor}
+.ovrsel{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:2px 5px;font-size:10.5px;font-weight:700;outline:none;cursor:pointer}
+
+/* counting mode */
+.moderow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:3px}
+.seg button{background:none;border:0;color:var(--muted);font:inherit;font-size:12.5px;font-weight:700;padding:6px 13px;border-radius:8px;cursor:pointer;transition:background .15s,color .15s}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--accent);color:#fff}
+.modehint{font-size:12px;color:var(--faint)}
+#modeNote{font-size:11.5px;color:var(--faint);margin-bottom:10px}
 
 /* comparison */
 .cmp-add{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
@@ -201,6 +215,13 @@ tr.open .vtag svg{transform:rotate(180deg)}
   <div id="results" class="hidden">
     <div id="snapBanner"></div>
     <div id="repoHead" class="repohead"></div>
+    <div class="moderow">
+      <div class="seg" role="group" aria-label="Counting mode">
+        <button id="modeInst" onclick="setMode('inst')">Installers only</button>
+        <button id="modeAll" onclick="setMode('all')">All files</button>
+      </div>
+      <span class="modehint" id="modeHint"></span>
+    </div>
     <div id="kpis" class="kpis"></div>
 
     <div class="insights">
@@ -217,6 +238,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
     </div>
 
     <div id="exportContent">
+      <div id="modeNote"></div>
       <!-- release filter -->
       <div class="section">
         <div class="section-head">
@@ -244,12 +266,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
             <div class="ctl"><label>Type</label><select id="cType" onchange="drawMain()">
               <option value="line">Line</option><option value="bar">Bar</option><option value="pie">Pie</option>
             </select></div>
-            <div class="ctl"><label>Metric</label><select id="cMetric" onchange="drawMain()">
-              <option value="total_downloads">Total downloads</option>
-              <option value="downloads_per_day">Downloads / day</option>
-              <option value="windows">Windows</option><option value="mac">macOS</option>
-              <option value="linux">Linux</option><option value="android">Android</option><option value="other">Other</option><option value="meta">Auto-update</option>
-            </select></div>
+            <div class="ctl"><label>Metric</label><select id="cMetric" onchange="drawMain()"></select></div>
           </div>
         </div>
         <div class="card chart-box"><div class="chart-h"><canvas id="mainChart"></canvas></div></div>
@@ -260,12 +277,30 @@ tr.open .vtag svg{transform:rotate(180deg)}
         <div>
           <h3>Platform split <label id="showMetaWrap" class="hidden" style="font-weight:600;text-transform:none;letter-spacing:0;color:var(--faint);font-size:12px;cursor:pointer"><input type="checkbox" id="showMeta" onchange="onToggleMeta()" style="vertical-align:-1px;margin-right:3px"> show auto-update</label></h3>
           <div class="card chart-box"><div class="chart-h sm"><canvas id="platChart"></canvas></div>
-          <div id="platLegend" class="legend"></div></div>
+          <div id="platLegend" class="legend"></div>
+          <div id="ovrInfo" style="font-size:11.5px;color:var(--faint);margin-top:10px"></div></div>
         </div>
         <div>
           <h3>Version adoption <span style="font-weight:600;text-transform:none;letter-spacing:0;color:var(--faint)">— share of all downloads</span></h3>
           <div class="card chart-box"><div class="chart-h sm"><canvas id="adoptChart"></canvas></div></div>
         </div>
+      </div>
+
+      <!-- update channel (only for repos that publish an auto-update feed) -->
+      <div class="section hidden" id="updSection">
+        <div class="section-head">
+          <h3>Update channel</h3>
+          <div class="controls">
+            <div class="ctl"><label>View</label><select id="uView" onchange="drawUpd()">
+              <option value="version">Direct vs in-app by version</option>
+              <option value="platform">Direct vs in-app by platform</option>
+              <option value="checks">Update checks over time</option>
+            </select></div>
+          </div>
+        </div>
+        <div id="updKpis" class="kpis" style="margin-bottom:16px"></div>
+        <div class="card chart-box"><div class="chart-h"><canvas id="updChart"></canvas></div>
+        <div id="updNote" style="font-size:11.5px;color:var(--faint);margin-top:12px"></div></div>
       </div>
 
       <!-- table -->
@@ -284,10 +319,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
         </div>
         <div id="snapCompareResult"></div>
         <div class="tbl-wrap"><table id="relTable">
-          <thead><tr>
-            <th>Version</th><th>Published</th><th>Age</th>
-            <th>Downloads/day</th><th>Total</th><th>Gained</th><th>Share</th>
-          </tr></thead>
+          <thead><tr id="relHead"></tr></thead>
           <tbody id="relBody"></tbody>
         </table></div>
       </div>
@@ -331,15 +363,26 @@ tr.open .vtag svg{transform:rotate(180deg)}
 
 <script>
 /* ---------- state ---------- */
-const S = { repo:null, meta:null, versions:[], summary:null, months:{}, mainChart:null, platChart:null, adoptChart:null, starChart:null, starSeries:null, showMeta:false };
-const LS = { snaps:'rr_snaps_v1', recent:'rr_recent_v1', theme:'rr_theme_v1', cmp:'rr_cmp_v1', showMeta:'rr_showmeta_v1', token:'rr_token_v1' };
+const S = { repo:null, meta:null, releases:null, versions:[], summary:null, months:{}, mainChart:null, platChart:null, adoptChart:null, updChart:null, starChart:null, starSeries:null, showMeta:false, mode:'inst', rules:{} };
+const LS = { snaps:'rr_snaps_v1', recent:'rr_recent_v1', theme:'rr_theme_v1', cmp:'rr_cmp_v1', showMeta:'rr_showmeta_v1', token:'rr_token_v1', mode:'rr_mode_v1', platRules:'rr_platrules_v1' };
 const $ = id => document.getElementById(id);
 const fmt = n => (n==null?'—':n.toLocaleString('en-US'));
 const fmtShort = n => { n=+n||0; if(n>=1e6)return (n/1e6).toFixed(1)+'M'; if(n>=1e3)return (n/1e3).toFixed(1)+'k'; return ''+n; };
+const pct = (n,d) => d ? Math.round(100*n/d) : 0;
+
+/* ---------- counting mode ----------
+   Auto-update traffic can be 4x the installer count, so "total downloads" was answering a
+   question nobody asked. Both value sets are precomputed in buildModel(), which makes the
+   toggle a pure re-render. */
+const MODE_INST = () => S.mode==='inst';
+const mvTotal  = v => MODE_INST() ? v.installerTotal : v.total_downloads;
+const mvPerDay = v => MODE_INST() ? v.dpdInst : v.dpdAll;
+const mvShare  = v => MODE_INST() ? v.shareInst : v.shareAll;
+const sTotal   = () => MODE_INST() ? S.summary.installerTotal : S.summary.total;
 
 /* ---------- theme ---------- */
 function applyTheme(t){ document.documentElement.setAttribute('data-theme',t); try{localStorage.setItem(LS.theme,t)}catch(e){}
-  if(S.mainChart){drawMain();drawPlat();drawAdopt();}
+  if(S.mainChart){drawMain();drawPlat();drawAdopt();drawUpd();}
   if(S.starChart)drawStarChart(); }
 function toggleTheme(){ applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); }
 (function(){ let t='light'; try{t=localStorage.getItem(LS.theme)|| (matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){} applyTheme(t); })();
@@ -347,27 +390,164 @@ function toggleTheme(){ applyTheme(document.documentElement.getAttribute('data-t
 function cssVar(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 
 /* ---------- platform detection ---------- */
-function detectPlatform(name){
-  const f=name.toLowerCase();
-  if(f.endsWith('.apk')||f.endsWith('.aab')) return 'Android';
-  if(f.endsWith('.app.zip')||f.endsWith('.dmg')||f.endsWith('.pkg')) return 'Mac';
-  if(f.includes('darwin')||f.includes('macos')||f.includes('osx')) return 'Mac';
-  if(f.endsWith('.tar.gz')||f.endsWith('.appimage')||f.endsWith('.deb')||f.endsWith('.rpm')||f.endsWith('.snap')||f.endsWith('.flatpak')) return 'Linux';
-  if(f.includes('linux')) return 'Linux';
-  if(f.endsWith('.exe')||f.endsWith('.msi')||f.endsWith('.msix')) return 'Windows';
-  if(f.includes('windows')||f.includes('win32')||f.includes('win64')||f.includes('-win')) return 'Windows';
-  if(f.endsWith('.zip')||f.endsWith('.rar')||f.endsWith('.7z')) return 'Windows';
-  return 'Other';
-}
-/* electron-builder / auto-update metadata: downloaded repeatedly by every running client,
-   so it dwarfs real installs. Excluded from platform math, surfaced separately. */
-function isMetadata(name){
-  const f=name.toLowerCase();
-  return f.endsWith('.blockmap')||f.endsWith('.yml')||f.endsWith('.yaml')
-      || f.endsWith('.sha256')||f.endsWith('.sha512')
-      || f.endsWith('.sig')||f.endsWith('.asc')||f.endsWith('.pem');
-}
+const lc = s => (''+s).toLowerCase();
+
+/* Compound extensions, checked longest-first before the plain last-dot fallback. */
+const MULTI_EXT=['app.tar.gz','pkg.tar.zst','pkg.tar.xz','app.zip','dsym.zip','tar.gz','tar.xz','tar.bz2','tar.zst'];
+/* The extension alone identifies the OS — no filename tokens needed. */
+const STRONG_EXT={
+  apk:'Android',aab:'Android',apks:'Android',
+  dmg:'Mac',pkg:'Mac',mpkg:'Mac','app.zip':'Mac','app.tar.gz':'Mac',
+  exe:'Windows',msi:'Windows',msix:'Windows',msixbundle:'Windows',appx:'Windows',
+  appxbundle:'Windows',nupkg:'Windows',cab:'Windows',
+  appimage:'Linux',deb:'Linux',rpm:'Linux',snap:'Linux',flatpak:'Linux',eopkg:'Linux',
+  'pkg.tar.zst':'Linux','pkg.tar.xz':'Linux'
+};
+/* Whole-token matching, never substrings: "darwin" contains "win", and "mac" turns up inside
+   plenty of unrelated words. "gnu" is deliberately absent — x86_64-pc-windows-gnu is a real
+   Rust target triple and a Linux token list containing "gnu" would misread it. */
+const OS_TOKENS=[
+  ['Android',['android']],
+  ['Mac',['mac','mac64','macos','macosx','osx','darwin','apple','silicon']],
+  ['Windows',['win','win32','win64','windows','winnt','w32','w64','msvc','mingw','cygwin']],
+  ['Linux',['linux','linux64','ubuntu','debian','fedora','centos','rhel','alpine','musl',
+            'archlinux','opensuse','raspbian','x11']],
+  ['Other',['freebsd','openbsd','netbsd','solaris','haiku','ios','wasm','wasi','source','src']]
+];
+const WRAP_EXT=['zip','7z','gz','xz','bz2','zst'];              // may hide the real payload extension
+const TAR_EXT=['tar.gz','tar.xz','tar.bz2','tar.zst','tgz','txz','tar'];
+const ARCHIVE_EXT=['zip','7z','rar'];                            // ambiguous when nothing names an OS
 const PLAT = { Windows:'--win', Mac:'--mac', Linux:'--linux', Android:'--android', Other:'--other' };
+const PLAT_LABEL = { Windows:'Windows', Mac:'macOS', Linux:'Linux', Android:'Android', Other:'Other' };
+
+function tokenize(s){ return lc(s).split(/[^a-z0-9]+/).filter(Boolean); }
+function extOf(f){
+  for(const e of MULTI_EXT) if(f.endsWith('.'+e)) return e;
+  const i=f.lastIndexOf('.');
+  return i<0 ? '' : f.slice(i+1);
+}
+function osFromTokens(tk){
+  const set=new Set(tk);
+  for(const [plat,words] of OS_TOKENS) for(const w of words) if(set.has(w)) return plat;
+  return null;
+}
+/* Cosmetic only — never used for bucketing. */
+function detectArch(f){
+  if(/(arm64|aarch64|armv8|silicon)/.test(f)) return 'arm64';
+  if(/universal/.test(f)) return 'universal';
+  if(/(x86[-_.]?64|amd64|x64|win64)/.test(f)) return 'x64';
+  if(/(i[36]86|ia32|win32|x86)/.test(f)) return 'ia32';
+  if(/(armv7l?|armhf|armv6)/.test(f)) return 'armv7';
+  return null;
+}
+/* Ladder: strong extension → OS token → peel one wrapper layer → tar.* → ambiguous archive. */
+function platformOf(f,depth){
+  const ext=extOf(f);
+  if(STRONG_EXT[ext]) return { cat:STRONG_EXT[ext], ambiguous:false };
+  const stem=ext ? f.slice(0,f.length-ext.length-1) : f;
+  const byTok=osFromTokens(tokenize(stem));
+  if(byTok) return { cat:byTok, ambiguous:false };
+  // "App_1.0_x64.msi.zip" (Tauri) → peel to "App_1.0_x64.msi"
+  if(depth<2 && WRAP_EXT.includes(ext.split('.').pop())){
+    const inner=f.slice(0,f.length-ext.length-1), innerExt=extOf(inner);
+    if(/^[a-z][a-z0-9.]{0,11}$/.test(innerExt)){        // guards "app-1.0.zip" → ext "0"
+      const p=platformOf(inner,depth+1);
+      if(p.cat!=='Other') return p;
+    }
+  }
+  // tar.* is a unix-native container; Windows releases essentially never ship a bare one.
+  if(TAR_EXT.includes(ext)) return { cat:'Linux', ambiguous:false };
+  // A bare .zip/.7z/.rar that names no OS is genuinely unknowable from the filename.
+  if(ARCHIVE_EXT.includes(ext)) return { cat:'Other', ambiguous:true };
+  return { cat:'Other', ambiguous:false };
+}
+function detectPlatform(name){
+  return platformOf(lc(name).replace(
+    /\.(blockmap|zsync|sig|asc|sha1|sha256|sha512|md5|pem|minisig)$/,''),0).cat;
+}
+/* electron-builder writes the Windows feed as a bare latest.yml; mac/linux carry a suffix. */
+function feedPlatform(f,ctx){
+  const tk=new Set(tokenize(f.replace(/\.(ya?ml|json)$/,'')));
+  if(tk.has('mac')||tk.has('darwin')||tk.has('macos')) return 'Mac';
+  if(tk.has('linux')) return 'Linux';
+  if(tk.has('win')||tk.has('win32')||tk.has('win64')||tk.has('windows')) return 'Windows';
+  return (ctx && ctx.hasWindows) ? 'Windows' : 'Other';
+}
+
+/* ---------- asset kind ----------
+   `kind` is orthogonal to platform. The old isMetadata() lumped all four non-installer kinds
+   into one "auto-update" bucket, which hid the only distinction that matters:
+     installer — a real binary a person or an updater installs
+     payload   — .blockmap/.zsync, fetched only when an installed app takes a differential update
+     feed      — latest*.yml, fetched every time an app polls for updates
+     verify    — checksums, signatures
+     other     — symbols, notes, SBOMs: not installable, not update traffic          */
+const KIND_LABEL={installer:'Installer',payload:'In-app update',feed:'Update check',
+                  verify:'Verification',other:'Extra'};
+const KIND_GROUP={installer:'Installers',payload:'In-app updates',feed:'Update checks',
+                  verify:'Verification',other:'Extras'};
+const KIND_COLOR={installer:null,payload:'--good',feed:'--accent-2',verify:'--muted',other:'--faint'};
+const KIND_ORDER=['installer','payload','feed','verify','other'];
+
+let CLASSIFY_CACHE=new Map();
+function resetClassifyCache(){ CLASSIFY_CACHE=new Map(); }
+
+function classifyAsset(name,ctx){
+  const ck=name+'|'+(ctx&&ctx.hasWindows?1:0);
+  const hit=CLASSIFY_CACHE.get(ck); if(hit) return hit;
+  const f=lc(name);
+  let r;
+  if(f.endsWith('.blockmap'))
+    r={ kind:'payload', cat:detectPlatform(f), base:name.slice(0,-9) };
+  else if(f.endsWith('.zsync'))
+    r={ kind:'payload', cat:detectPlatform(f), base:name.slice(0,-6) };
+  else if(/\.ya?ml$/.test(f) || f==='releases' || /^latest[\w.-]*\.json$/.test(f))
+    r={ kind:'feed', cat:feedPlatform(f,ctx), base:null };
+  else if(/\.(sha1|sha256|sha512|md5|sig|asc|pem|minisig|cert|pub)$/.test(f)
+       || /^(sha\d*sums?|checksums?|md5sums?)(\.txt)?$/.test(f)
+       || /checksums?[\w.-]*\.txt$/.test(f))
+    r={ kind:'verify', cat:detectPlatform(f), base:null };
+  else if(/\.(txt|md|json|log|pdb|sym|map)$/.test(f) || f.endsWith('.dsym.zip'))
+    r={ kind:'other', cat:detectPlatform(f), base:null };
+  else {
+    const p=platformOf(f,0);
+    r={ kind:'installer', cat:p.cat, ambiguous:p.ambiguous, base:null };
+  }
+  r.ambiguous=!!r.ambiguous;
+  r.arch=detectArch(f);
+  // A user override always wins — it is the only way to resolve a name that carries no OS token.
+  const ov=platRuleFor(name);
+  if(ov && r.kind==='installer'){ r.cat=ov; r.ambiguous=false; r.overridden=true; }
+  r.meta = r.kind!=='installer';   // back-compat: same semantics as the old isMetadata()
+  CLASSIFY_CACHE.set(ck,r);
+  return r;
+}
+function isMetadata(name){ return classifyAsset(name).meta; }   // kept for legacy call sites
+
+/* ---------- platform overrides ----------
+   Heuristics cannot resolve names like "Joplin-3.7.9-arm64.zip" — nothing in the filename says
+   macOS. Rules are stored per repo against a version-stripped pattern so one assignment covers
+   every past and future release, and because classifyAsset() is the single entry point they
+   also re-shape snapshot history. */
+function patternOf(name){
+  return name.replace(/\d+(\.\d+)+/g,'*').replace(/\b[0-9a-f]{7,40}\b/gi,'*');
+}
+function loadPlatRules(){ try{return JSON.parse(localStorage.getItem(LS.platRules)||'{}')}catch(e){return {}} }
+function savePlatRules(o){ try{localStorage.setItem(LS.platRules,JSON.stringify(o))}catch(e){} }
+function repoRules(){ return loadPlatRules()[S.repo]||{}; }
+function platRuleFor(name){ return S.rules ? S.rules[patternOf(name)]||null : null; }
+function setPlatRule(name,plat){
+  const all=loadPlatRules(), r=all[S.repo]||{}, key=patternOf(name);
+  if(plat) r[key]=plat; else delete r[key];
+  if(Object.keys(r).length) all[S.repo]=r; else delete all[S.repo];
+  savePlatRules(all); refreshRules();
+}
+function clearPlatRules(){ const all=loadPlatRules(); delete all[S.repo]; savePlatRules(all); refreshRules(); }
+/* Rules feed classification, so changing one invalidates every derived number. */
+function refreshRules(){
+  S.rules=repoRules(); resetClassifyCache(); invalidateSnapDerivations();
+  if(S.releases){ buildModel(S.releases); render(); }
+}
 
 /* ---------- messaging ---------- */
 function msg(text,kind){ const m=$('msg'); m.textContent=text; m.className='msg '+kind; }
@@ -432,6 +612,8 @@ async function run(){
     const withAssets=rel.all.filter(r=>r.assets&&r.assets.length);
     if(!withAssets.length) throw new Error('NO_ASSETS');
     S.repo=repo; S.meta=meta;
+    invalidateSnaps();
+    S.rules=repoRules();          // per-repo platform overrides feed classification
     buildModel(withAssets);
     saveSnapshot();
     pushRecent(repo);
@@ -449,66 +631,212 @@ async function run(){
 }
 
 /* ---------- model ---------- */
+const ZERO_KINDS = () => ({installer:0,payload:0,feed:0,verify:0,other:0});
+const ZERO_SPLIT = () => ({Windows:{direct:0,inapp:0},Mac:{direct:0,inapp:0},Linux:{direct:0,inapp:0},
+                           Android:{direct:0,inapp:0},Other:{direct:0,inapp:0}});
+
 function buildModel(releases){
+  S.releases=releases;
+  // Repo-wide pre-pass: a bare latest.yml only means "Windows feed" if the repo actually
+  // ships Windows installers, so classification needs to know before it runs for real.
+  resetClassifyCache();
+  const ctx={hasWindows:false};
+  releases.forEach(r=>(r.assets||[]).forEach(a=>{
+    const c=classifyAsset(a.name,null);
+    if(c.kind==='installer' && c.cat==='Windows') ctx.hasWindows=true;
+  }));
+  resetClassifyCache();
+  S.ctx=ctx;
+
   let vs=releases.map(r=>{
-    const cats={Windows:0,Mac:0,Linux:0,Android:0,Other:0}; const assets=[]; let metaTotal=0;
-    r.assets.forEach(a=>{
-      const meta=isMetadata(a.name);
-      // for a .blockmap the base platform still helps the asset badge (latest.yml → Windows, etc.)
-      const c=detectPlatform(meta?a.name.replace(/\.blockmap$/i,''):a.name);
-      if(meta) metaTotal+=a.download_count; else cats[c]+=a.download_count;
-      assets.push({name:a.name,count:a.download_count,cat:c,meta});
+    const cats={Windows:0,Mac:0,Linux:0,Android:0,Other:0};
+    const kinds=ZERO_KINDS(), byPlat=ZERO_SPLIT();
+    const assets=[], byName={};
+    (r.assets||[]).forEach(a=>{
+      const c=classifyAsset(a.name,ctx);
+      const rec={ name:a.name, count:a.download_count, cat:c.cat, kind:c.kind, meta:c.meta,
+                  arch:c.arch, base:c.base, ambiguous:c.ambiguous, overridden:!!c.overridden,
+                  pairedWith:null, payloadFor:null, inapp:0, direct:0 };
+      assets.push(rec); byName[lc(a.name)]=rec;
+      kinds[c.kind]+=rec.count;
+      if(c.kind==='installer') cats[c.cat]+=rec.count;
     });
-    return { version:r.tag_name, name:r.name, date:new Date(r.published_at), prerelease:r.prerelease, cats, metaTotal, assets };
+    // Pair each differential payload to its installer. Joplin ships "Joplin-3.7.9-arm64.DMG"
+    // next to "Joplin-3.7.9-arm64.dmg.blockmap", so the lookup has to be case-insensitive.
+    let clamped=0;
+    assets.forEach(p=>{
+      if(p.kind!=='payload'||!p.base) return;
+      const inst=byName[lc(p.base)];
+      if(!inst||inst.kind!=='installer') return;
+      p.payloadFor=inst.name; inst.pairedWith=p.name;
+      inst.inapp=Math.min(p.count,inst.count);   // keep direct+inapp === the installer's own count
+      if(p.count>inst.count) clamped++;
+    });
+    let inapp=0;
+    assets.forEach(a=>{ if(a.kind!=='installer') return;
+      a.direct=a.count-a.inapp; inapp+=a.inapp;
+      byPlat[a.cat].inapp+=a.inapp; byPlat[a.cat].direct+=a.direct; });
+
+    const metaTotal=kinds.payload+kinds.feed+kinds.verify+kinds.other;
+    return { version:r.tag_name, name:r.name, date:new Date(r.published_at), prerelease:r.prerelease,
+             cats, kinds, byPlat, metaTotal, assets, inapp, direct:kinds.installer-inapp, clamped };
   }).filter(v=>v.date instanceof Date && !isNaN(v.date)).sort((a,b)=>b.date-a.date);
 
-  const today=new Date(); const months={}; const sum={Windows:0,Mac:0,Linux:0,Android:0,Other:0,installTotal:0,metaTotal:0,total:0};
+  const today=new Date(); const months={};
+  const sum={Windows:0,Mac:0,Linux:0,Android:0,Other:0,installTotal:0,metaTotal:0,total:0,
+             kinds:ZERO_KINDS(),byPlat:ZERO_SPLIT(),inapp:0,direct:0,clamped:0,ambiguous:[]};
   vs.forEach((v,i)=>{
     const next=(i===0)?today:vs[i-1].date;
     v.days_live=Math.max(1,Math.floor(Math.abs(next-v.date)/864e5));
     v.age=Math.floor(Math.abs(today-v.date)/864e5);
     v.windows=v.cats.Windows; v.mac=v.cats.Mac; v.linux=v.cats.Linux; v.android=v.cats.Android; v.other=v.cats.Other;
     v.meta=v.metaTotal;
-    v.installTotal=v.windows+v.mac+v.linux+v.android+v.other;
-    v.total_downloads=v.installTotal+v.metaTotal; // all assets — unchanged from before, keeps snapshots consistent
-    v.downloads_per_day=+(v.total_downloads/v.days_live).toFixed(1);
+    v.installTotal=v.installerTotal=v.kinds.installer;
+    v.checks=v.kinds.feed;
+    v.total_downloads=v.installTotal+v.metaTotal; // all assets — unchanged, keeps snapshots consistent
+    v.dpdAll=+(v.total_downloads/v.days_live).toFixed(1);
+    v.dpdInst=+(v.installerTotal/v.days_live).toFixed(1);
+    v.downloads_per_day=v.dpdAll;
     v.monthKey=v.date.toISOString().slice(0,7);
     (months[v.monthKey]=months[v.monthKey]||[]).push(v);
-    ['Windows','Mac','Linux','Android','Other'].forEach(k=>sum[k]+=v.cats[k]);
+    ['Windows','Mac','Linux','Android','Other'].forEach(k=>{ sum[k]+=v.cats[k];
+      sum.byPlat[k].direct+=v.byPlat[k].direct; sum.byPlat[k].inapp+=v.byPlat[k].inapp; });
+    Object.keys(sum.kinds).forEach(k=>sum.kinds[k]+=v.kinds[k]);
     sum.installTotal+=v.installTotal; sum.metaTotal+=v.metaTotal; sum.total+=v.total_downloads;
+    sum.inapp+=v.inapp; sum.direct+=v.direct; sum.clamped+=v.clamped;
+    v.assets.forEach(a=>{ if(a.ambiguous) sum.ambiguous.push({name:a.name,count:a.count}); });
   });
-  vs.forEach(v=> v.share=sum.total?+(100*v.total_downloads/sum.total).toFixed(1):0 );
+  sum.installerTotal=sum.installTotal;
+  sum.checks=sum.kinds.feed;
+  sum.hasUpdateChannel = sum.kinds.payload>0 || sum.kinds.feed>0;
+  vs.forEach(v=>{
+    v.shareAll  = sum.total ? +(100*v.total_downloads/sum.total).toFixed(1) : 0;
+    v.shareInst = sum.installerTotal ? +(100*v.installerTotal/sum.installerTotal).toFixed(1) : 0;
+    v.share = v.shareAll;
+  });
   S.versions=vs; S.summary=sum; S.months=months;
 }
 
 /* ---------- snapshots (the killer feature) ---------- */
 function loadSnaps(){ try{return JSON.parse(localStorage.getItem(LS.snaps)||'{}')}catch(e){return {}} }
-function saveSnaps(o){ try{localStorage.setItem(LS.snaps,JSON.stringify(o))}catch(e){} }
+function saveSnaps(o){
+  try{ localStorage.setItem(LS.snaps,JSON.stringify(o)); S.snapSaveError=false; }
+  catch(e){ S.snapSaveError=true; }   // quota: surfaced in renderSnapInfo() rather than swallowed
+}
 function saveSnapshot(){
   const o=loadSnaps(); const arr=o[S.repo]||[];
   const last=arr[arr.length-1];
   const pv={}, pa={};
   S.versions.forEach(v=>{ pv[v.version]=v.total_downloads; v.assets.forEach(a=>{ pa[v.version+'::'+a.name]=a.count; }); });
-  const snap={ t:new Date().toISOString(), total:S.summary.total,
-    plat:{Windows:S.summary.Windows,Mac:S.summary.Mac,Linux:S.summary.Linux,Android:S.summary.Android,Other:S.summary.Other,Meta:S.summary.metaTotal}, pv, pa };
+  const s=S.summary;
+  const snap={ t:new Date().toISOString(), total:s.total,
+    plat:{Windows:s.Windows,Mac:s.Mac,Linux:s.Linux,Android:s.Android,Other:s.Other,Meta:s.metaTotal},
+    // v2: a cheap cache so an exported file is self-describing and history survives a pruned `pa`.
+    // deriveSnap() still prefers recomputing from `pa` — see the note there.
+    v:2, inst:s.installerTotal,
+    ip:{Windows:s.Windows,Mac:s.Mac,Linux:s.Linux,Android:s.Android,Other:s.Other},
+    k:{payload:s.kinds.payload,feed:s.kinds.feed,verify:s.kinds.verify,other:s.kinds.other},
+    d:{direct:s.direct,inapp:s.inapp},
+    pv, pa };
   // avoid duplicate snapshots within the same hour
   if(last && (new Date(snap.t)-new Date(last.t))<36e5 && last.total===snap.total){ arr[arr.length-1]=snap; }
   else arr.push(snap);
-  o[S.repo]=arr.slice(-500); saveSnaps(o); S.snaps=o[S.repo];
+  o[S.repo]=arr.slice(-500); saveSnaps(o); S.snaps=o[S.repo]; invalidateSnaps();
 }
-function repoSnaps(){ return (loadSnaps()[S.repo]||[]); }
+/* renderTable() reaches for snapshots once per asset via lastGrowthWindow(); without this cache
+   that is a full JSON.parse of every repo's history per asset per render. */
+function repoSnaps(){
+  if(S._snapRepo!==S.repo || !S._snapCache){ S._snapCache=loadSnaps()[S.repo]||[]; S._snapRepo=S.repo; }
+  return S._snapCache;
+}
+function invalidateSnaps(){ S._snapCache=null; }
+function invalidateSnapDerivations(){ (S._snapCache||[]).forEach(s=>{ try{delete s.__d}catch(e){} }); }
+
+/* ---------- retroactive snapshot derivation ----------
+   Every snapshot ever written carries `pa`, a map of "tag::assetName" → count covering every
+   asset of every release. Asset NAMES are all classification needs, so an old snapshot can be
+   re-read under today's rules: installer-only totals, update checks, in-app updates and even the
+   direct-vs-in-app split all reach back to the very first snapshot.
+   Deriving at read time (rather than trusting stored fields) also means a classifier fix or a new
+   platform override reshapes the whole series at once, instead of leaving a step at the boundary. */
+function deriveSnap(s){
+  if(s.__d) return s.__d;
+  let d;
+  const pa=s.pa;
+  if(pa && Object.keys(pa).length){
+    // Same two-phase context the live model uses, so a bare latest.yml is attributed the same way.
+    const ctx={hasWindows:false};
+    for(const key in pa){
+      const cut=key.indexOf('::'); if(cut<0) continue;
+      const c=classifyAsset(key.slice(cut+2),null);
+      if(c.kind==='installer' && c.cat==='Windows'){ ctx.hasWindows=true; break; }
+    }
+    const k=ZERO_KINDS(), ip={Windows:0,Mac:0,Linux:0,Android:0,Other:0};
+    const pvInst={}, rows=[], byKey={};
+    let raw=0;
+    for(const key in pa){
+      const cut=key.indexOf('::'); if(cut<0) continue;
+      const tag=key.slice(0,cut), name=key.slice(cut+2), n=+pa[key]||0;
+      const c=classifyAsset(name,ctx);
+      const row={tag,name,n,c}; rows.push(row); byKey[tag+'::'+lc(name)]=row; raw+=n;
+      k[c.kind]+=n;
+      if(c.kind==='installer'){ ip[c.cat]+=n; pvInst[tag]=(pvInst[tag]||0)+n; }
+    }
+    let inapp=0;
+    rows.forEach(r=>{
+      if(r.c.kind!=='payload'||!r.c.base) return;
+      const inst=byKey[r.tag+'::'+lc(r.c.base)];
+      if(inst && inst.c.kind==='installer') inapp+=Math.min(r.n,inst.n);
+    });
+    d={ ok:true, src:'pa', inst:k.installer, ip, k, inapp, direct:k.installer-inapp, pvInst,
+        partial: s.total ? (raw/s.total)<0.995 : false };
+  } else if(s.inst!=null){                       // v2 snapshot whose pa was pruned
+    d={ ok:true, src:'fields', inst:s.inst, ip:s.ip||null, k:s.k||null,
+        inapp:(s.d&&s.d.inapp)||0, direct:(s.d&&s.d.direct)||0, pvInst:null, partial:true };
+  } else if(s.plat){
+    // Pre-`pa` snapshot: the five platform buckets were installer-only even then, so their sum
+    // is a usable installer total. It was bucketed by the older classifier, so treat it as
+    // approximate — and the in-app/check split simply isn't in there to recover.
+    const ip={Windows:s.plat.Windows||0,Mac:s.plat.Mac||0,Linux:s.plat.Linux||0,
+              Android:s.plat.Android||0,Other:s.plat.Other||0};
+    const inst=ip.Windows+ip.Mac+ip.Linux+ip.Android+ip.Other;
+    d={ ok:true, src:'plat', inst, ip, k:null, inapp:null, direct:null, pvInst:null, partial:true };
+  } else {
+    d={ ok:false, src:'none' };                  // predates per-asset tracking entirely
+  }
+  // non-enumerable so saveSnaps()/exportSnapshots() never serialize the cache back out
+  try{ Object.defineProperty(s,'__d',{value:d,enumerable:false,configurable:true}); }catch(e){}
+  return d;
+}
+function snapVal(s,metric){
+  const d=deriveSnap(s);
+  switch(metric){
+    case 'all':    return s.total;
+    case 'inst':   return d.ok ? d.inst : null;
+    case 'inapp':  return d.ok ? d.inapp : null;
+    case 'direct': return d.ok ? d.direct : null;
+    case 'checks': return d.ok && d.k ? d.k.feed : null;
+    case 'meta':   return d.ok ? s.total-d.inst : (s.plat ? s.plat.Meta : null);
+    default:       return d.ok && d.ip ? d.ip[metric] : (s.plat ? s.plat[metric] : null);
+  }
+}
+const snapTotal = s => MODE_INST() ? snapVal(s,'inst') : s.total;
+function usableSnaps(){ return repoSnaps().filter(s=>snapTotal(s)!=null); }
+
 function measuredVelocity(){
-  const a=repoSnaps(); if(a.length<2) return null;
+  const a=usableSnaps(); if(a.length<2) return null;
   const first=a[0], last=a[a.length-1];
   const days=(new Date(last.t)-new Date(first.t))/864e5;
   if(days<=0) return null;
-  return { perDay:(last.total-first.total)/days, gained:last.total-first.total, days:days, since:first.t };
+  const gained=snapTotal(last)-snapTotal(first);
+  return { perDay:gained/days, gained, days:days, since:first.t, count:a.length };
 }
 function lastDelta(){
-  const a=repoSnaps(); if(a.length<2) return null;
+  const a=usableSnaps(); if(a.length<2) return null;
   const last=a[a.length-1], prev=a[a.length-2];
   const days=Math.max((new Date(last.t)-new Date(prev.t))/864e5,1/24);
-  return { gained:last.total-prev.total, perDay:(last.total-prev.total)/days, since:prev.t };
+  const gained=snapTotal(last)-snapTotal(prev);
+  return { gained, perDay:gained/days, since:prev.t };
 }
 // Per-version / per-asset gains now come from snapRange(), which diffs the snapshot
 // pair selected in the Releases section rather than always the previous snapshot.
@@ -551,18 +879,40 @@ function renderFilterInfo(){
 function render(){
   $('skeleton').classList.add('hidden'); $('results').classList.remove('hidden');
   $('fltSearch').value=''; $('fltFrom').value=''; $('fltTo').value='';
+  renderModeUI(); populateMetricSelect();
   renderSnapBanner(); renderHead(); renderKPIs(); renderInsights();
   // default group: snapshot view if we have history, else version
   $('cGroup').value = 'version';
   // selects must be populated before renderTable — it reads them for the "Gained" column
   populateSnapSelects(); renderSnapCompare();
-  drawMain(); drawPlat(); drawAdopt(); renderTable(); renderSnapInfo(); renderCompare(); renderFilterInfo();
+  drawMain(); drawPlat(); drawAdopt(); drawUpd(); renderTable(); renderSnapInfo(); renderCompare(); renderFilterInfo();
+}
+
+/* Both value sets already exist on the model, so switching modes is a pure re-render. */
+function setMode(m){
+  if(m===S.mode) return;
+  S.mode=m; try{localStorage.setItem(LS.mode,m)}catch(e){}
+  renderModeUI(); populateMetricSelect();
+  renderSnapBanner(); renderKPIs(); renderInsights();
+  drawMain(); drawPlat(); drawAdopt(); drawUpd(); renderTable(); renderSnapCompare();
+}
+function renderModeUI(){
+  const inst=MODE_INST();
+  $('modeInst').classList.toggle('on',inst); $('modeAll').classList.toggle('on',!inst);
+  $('modeHint').textContent = inst
+    ? 'Counting installer binaries only — auto-update and checksum files are excluded.'
+    : 'Counting every release asset, including auto-update and checksum files.';
+  // duplicated inside #exportContent so PDF/print output says which number it is showing
+  $('modeNote').textContent = inst
+    ? 'Counting mode: installers only (auto-update and checksum files excluded).'
+    : 'Counting mode: all files (auto-update and checksum files included).';
 }
 
 function renderSnapBanner(){
-  const a=repoSnaps(); const el=$('snapBanner');
-  if(a.length<2){ el.innerHTML=`<div class="snap-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><div><b>First snapshot saved.</b> Revisit this page later and Release Radar will show <b>real measured download velocity</b> over time — no backend, no sign-in.</div></div>`; }
-  else { const v=measuredVelocity(); el.innerHTML=`<div class="snap-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg><div><b>Measured over ${a.length} snapshots:</b> +${fmt(v.gained)} downloads across ${v.days<1?'<1':Math.round(v.days)} day(s) — <b>${fmt(Math.round(v.perDay))}/day</b> actual velocity.</div></div>`; }
+  const a=usableSnaps(); const el=$('snapBanner'); const v=measuredVelocity();
+  const noun=MODE_INST()?'installer downloads':'downloads';
+  if(!v){ el.innerHTML=`<div class="snap-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><div><b>First snapshot saved.</b> Revisit this page later and Release Radar will show <b>real measured download velocity</b> over time — no backend, no sign-in.</div></div>`; }
+  else { el.innerHTML=`<div class="snap-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg><div><b>Measured over ${a.length} snapshots:</b> +${fmt(v.gained)} ${noun} across ${v.days<1?'<1':Math.round(v.days)} day(s) — <b>${fmt(Math.round(v.perDay))}/day</b> actual velocity.</div></div>`; }
 }
 
 function renderHead(){
@@ -581,37 +931,59 @@ function renderHead(){
 }
 
 function renderKPIs(){
-  const s=S.summary, v=measuredVelocity(), latest=S.versions[0];
-  const velVal = v ? Math.round(v.perDay) : (latest?Math.round(latest.downloads_per_day):0);
+  const s=S.summary, v=measuredVelocity(), latest=S.versions[0], inst=MODE_INST();
+  const velVal = v ? Math.round(v.perDay) : (latest?Math.round(mvPerDay(latest)):0);
   const velBadge = v ? '<span class="badge measured">measured</span>' : '<span class="badge est">estimated</span>';
   const delta=lastDelta();
-  const deltaSub = delta ? `<div class="k-sub ${delta.gained>=0?'up':'down'}">${delta.gained>=0?'▲':'▼'} ${fmt(Math.abs(delta.gained))} since last visit</div>` : '<div class="k-sub">tracking started</div>';
+  // With 2+ snapshots but none derivable, the history predates per-asset tracking — say which,
+  // rather than showing a delta that silently means something else.
+  const noInstHistory = !delta && inst && repoSnaps().length>=2;
+  const deltaSub = delta
+    ? `<div class="k-sub ${delta.gained>=0?'up':'down'}">${delta.gained>=0?'▲':'▼'} ${fmt(Math.abs(delta.gained))} since last visit</div>`
+    : `<div class="k-sub">${noInstHistory?'installer history starts with this snapshot':'tracking started'}</div>`;
   const topPlat=['Windows','Mac','Linux','Android','Other'].map(k=>[k,s[k]]).sort((a,b)=>b[1]-a[1])[0];
-  const platPct=s.installTotal?Math.round(100*topPlat[1]/s.installTotal):0;
-  const metaSub=deltaSub+(s.metaTotal>0?`<div class="k-sub">incl. ${fmt(s.metaTotal)} auto-update files</div>`:'');
+  const platPct=pct(topPlat[1],s.installerTotal);
+
+  let sub2='';
+  if(inst && s.metaTotal>0) sub2=`<div class="k-sub">excludes ${fmt(s.metaTotal)} auto-update &amp; checksum files</div>`;
+  else if(!inst && s.metaTotal>0) sub2=`<div class="k-sub">${fmt(s.installerTotal)} installers · ${fmt(s.metaTotal)} auto-update &amp; checksum files</div>`;
+  if(inst && s.hasUpdateChannel && s.installerTotal>0)
+    sub2=`<div class="k-sub">${fmt(s.inapp)} delivered in-app · ${fmt(s.direct)} direct</div>`+sub2;
+
   $('kpis').innerHTML=`
-    <div class="kpi"><div class="k-bar"></div><div class="k-label">Total downloads</div><div class="k-val">${fmt(s.total)}</div>${metaSub}</div>
+    <div class="kpi"><div class="k-bar"></div><div class="k-label">Total downloads ${inst?'(installers)':'(all files)'}</div><div class="k-val">${fmt(sTotal())}</div>${deltaSub}${sub2}</div>
     <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">Velocity ${velBadge}</div><div class="k-val">${fmt(velVal)}<span style="font-size:14px;color:var(--faint)">/day</span></div><div class="k-sub">${v?'from your snapshots':'latest release estimate'}</div></div>
-    <div class="kpi"><div class="k-bar" style="background:var(--accent-2)"></div><div class="k-label">Latest release</div><div class="k-val" style="font-size:20px">${latest?escapeHtml(latest.version):'—'}</div><div class="k-sub">${latest?fmt(latest.total_downloads)+' downloads · '+latest.age+'d old':''}</div></div>
-    <div class="kpi"><div class="k-bar" style="background:var(${PLAT[topPlat[0]]})"></div><div class="k-label">Top platform</div><div class="k-val" style="font-size:22px">${topPlat[0]}</div><div class="k-sub">${platPct}% of all downloads</div></div>`;
+    <div class="kpi"><div class="k-bar" style="background:var(--accent-2)"></div><div class="k-label">Latest release</div><div class="k-val" style="font-size:20px">${latest?escapeHtml(latest.version):'—'}</div><div class="k-sub">${latest?fmt(mvTotal(latest))+(inst?' installers · ':' downloads · ')+latest.age+'d old':''}</div></div>
+    <div class="kpi"><div class="k-bar" style="background:var(${PLAT[topPlat[0]]})"></div><div class="k-label">Top platform</div><div class="k-val" style="font-size:22px">${PLAT_LABEL[topPlat[0]]}</div><div class="k-sub">${platPct}% of installer downloads</div></div>`;
 }
 
 function renderInsights(){
   const s=S.summary, vs=S.versions, out=[];
-  const topV=[...vs].sort((a,b)=>b.total_downloads-a.total_downloads)[0];
-  if(topV) out.push(['--accent',`<b>${escapeHtml(topV.version)}</b> is the most downloaded release with <b>${fmt(topV.total_downloads)}</b> downloads (${topV.share}% of all time).`]);
+  const topV=[...vs].sort((a,b)=>mvTotal(b)-mvTotal(a))[0];
+  if(topV) out.push(['--accent',`<b>${escapeHtml(topV.version)}</b> is the most downloaded release with <b>${fmt(mvTotal(topV))}</b> downloads (${mvShare(topV)}% of all time).`]);
   const topPlat=['Windows','Mac','Linux','Android','Other'].map(k=>[k,s[k]]).sort((a,b)=>b[1]-a[1])[0];
-  if(topPlat[1]>0 && s.installTotal>0) out.push([PLAT[topPlat[0]],`<b>${topPlat[0]}</b> users dominate — <b>${Math.round(100*topPlat[1]/s.installTotal)}%</b> of downloads. ${downloadedPlatforms()} platforms detected.`]);
-  if(s.metaTotal>0) out.push(['--other',`Auto-update traffic: <b>${fmt(s.metaTotal)}</b> downloads (<b>${Math.round(100*s.metaTotal/s.total)}%</b> of raw total) — latest.yml, blockmaps &amp; checksums, excluded from platform stats.`]);
+  if(topPlat[1]>0 && s.installerTotal>0) out.push([PLAT[topPlat[0]],`<b>${PLAT_LABEL[topPlat[0]]}</b> users dominate — <b>${pct(topPlat[1],s.installerTotal)}%</b> of installer downloads. ${downloadedPlatforms()} platforms detected.`]);
+  if(s.hasUpdateChannel){
+    out.push(['--accent-2',`Update channel: <b>${fmt(s.kinds.feed)}</b> update checks and <b>${fmt(s.inapp)}</b> in-app updates delivered — <b>${pct(s.metaTotal,s.total)}%</b> of all file downloads.`]);
+    if(s.installerTotal>0) out.push(['--good',`<b>${pct(s.inapp,s.installerTotal)}%</b> of installer downloads (<b>${fmt(s.inapp)}</b> of <b>${fmt(s.installerTotal)}</b>) were delivered as in-app updates; <b>${fmt(s.direct)}</b> came from direct links.`]);
+  } else if(s.metaTotal>0){
+    out.push(['--other',`Auto-update &amp; checksum files: <b>${fmt(s.metaTotal)}</b> downloads (<b>${pct(s.metaTotal,s.total)}%</b> of all files), excluded from platform stats.`]);
+  }
+  if(s.ambiguous.length){
+    const names=s.ambiguous.slice(0,3).map(a=>escapeHtml(a.name)).join(', ');
+    const more=s.ambiguous.length>3?` and ${s.ambiguous.length-3} more`:'';
+    const tot=s.ambiguous.reduce((n,a)=>n+a.count,0);
+    out.push(['--warn',`<b>${s.ambiguous.length}</b> archive(s) don't name a platform — ${names}${more} — so <b>${fmt(tot)}</b> downloads sit under "Other". Click the <b>Unknown</b> badge in the Releases table to assign one.`]);
+  }
   // momentum: recent 3 releases vs previous 3 by downloads/day
   if(vs.length>=4){
     const recent=vs.slice(0,3), older=vs.slice(3,6);
-    const ra=avg(recent.map(v=>v.downloads_per_day)), oa=avg(older.map(v=>v.downloads_per_day));
+    const ra=avg(recent.map(mvPerDay)), oa=avg(older.map(mvPerDay));
     if(oa>0){ const chg=Math.round(100*(ra-oa)/oa);
       out.push([chg>=0?'--good':'--bad',`Download momentum is <b>${chg>=0?'up':'down'} ${Math.abs(chg)}%</b> — recent releases average ${fmt(Math.round(ra))}/day vs ${fmt(Math.round(oa))}/day before.`]); }
   }
   const latest=vs[0];
-  if(latest){ const adoption=Math.round(100*latest.total_downloads/(topV.total_downloads||1));
+  if(latest){ const adoption=pct(mvTotal(latest),mvTotal(topV)||1);
     out.push(['--accent-2',`Latest release <b>${escapeHtml(latest.version)}</b> has reached <b>${adoption}%</b> of the peak release's downloads in ${latest.age} day(s).`]); }
   const v=measuredVelocity();
   if(v) out.push(['--good',`Measured velocity: <b>${fmt(Math.round(v.perDay))} downloads/day</b> tracked across ${Math.round(v.days)||'<1'} day(s) of your own snapshots.`]);
@@ -629,6 +1001,32 @@ function baseOpts(showLegend){
       tooltip:{callbacks:{label:c=>` ${c.dataset.label||c.label}: ${fmt(c.parsed.y??c.parsed)}`}} },
     scales: showLegend?{}:{ y:{beginAtZero:true,grid:{color:grid},ticks:{color:tick,callback:v=>fmtShort(v)}}, x:{grid:{display:false},ticks:{color:tick,maxRotation:60,minRotation:0}} } };
 }
+/* Metric list is repo-dependent: the update-channel options only exist for repos that ship a feed. */
+function populateMetricSelect(){
+  const sel=$('cMetric'), prev=sel.value;
+  const opts=[['mode',MODE_INST()?'Installer downloads':'All-file downloads'],
+              ['perday',MODE_INST()?'Installers / day':'Downloads / day'],
+              ['windows','Windows'],['mac','macOS'],['linux','Linux'],['android','Android'],['other','Other']];
+  if(S.summary && S.summary.hasUpdateChannel)
+    opts.push(['direct','Direct downloads'],['inapp','In-app updates'],['checks','Update checks']);
+  opts.push(['meta','Auto-update traffic (all)']);
+  sel.innerHTML=opts.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+  sel.value = opts.some(o=>o[0]===prev) ? prev : 'mode';
+}
+/* Per-version accessor for a metric id; snapVal() is its snapshot-side twin. */
+function metricOf(v,m){
+  switch(m){
+    case 'mode':   return mvTotal(v);
+    case 'perday': return mvPerDay(v);
+    case 'inapp':  return v.inapp;
+    case 'direct': return v.direct;
+    case 'checks': return v.checks;
+    case 'meta':   return v.metaTotal;
+    default:       return v[m];
+  }
+}
+const SNAP_METRIC={mode:null,perday:null,windows:'Windows',mac:'Mac',linux:'Linux',
+                   android:'Android',other:'Other',meta:'meta',inapp:'inapp',direct:'direct',checks:'checks'};
 function drawMain(){
   const group=$('cGroup').value, type=$('cType').value, metric=$('cMetric').value;
   const label=$('cMetric').selectedOptions[0].text;
@@ -637,18 +1035,20 @@ function drawMain(){
     const a=repoSnaps();
     if(a.length<2){ $('cGroup').value='version'; return drawMain(); }
     labels=a.map(s=>new Date(s.t).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit'}));
-    if(['windows','mac','linux','android','other','meta'].includes(metric)){ const key={windows:'Windows',mac:'Mac',linux:'Linux',android:'Android',other:'Other',meta:'Meta'}[metric]; data=a.map(s=>s.plat?(s.plat[key]||0):0); }
-    else data=a.map(s=>s.total);
+    const key=SNAP_METRIC[metric];
+    // null, not 0, for snapshots that can't answer this metric — a zero would draw a phantom
+    // crash to the axis. spanGaps below bridges the hole instead.
+    data = key ? a.map(s=>snapVal(s,key)) : a.map(s=>snapTotal(s));
   } else {
     const sorted=[...filteredVersions()].sort((a,b)=>a.date-b.date);
-    if(group==='version'){ labels=sorted.map(v=>v.version); data=sorted.map(v=>v[metric]); }
-    else { const mo={}; sorted.forEach(v=>mo[v.monthKey]=(mo[v.monthKey]||0)+v[metric]); labels=Object.keys(mo); data=Object.values(mo); }
+    if(group==='version'){ labels=sorted.map(v=>v.version); data=sorted.map(v=>metricOf(v,metric)); }
+    else { const mo={}; sorted.forEach(v=>mo[v.monthKey]=(mo[v.monthKey]||0)+metricOf(v,metric)); labels=Object.keys(mo); data=Object.values(mo); }
   }
   if(S.mainChart)S.mainChart.destroy();
   const acc=cssVar('--accent');
   const palette=['--win','--good','--linux','--bad','--other','--accent-2','--mac','--android'].map(v=>cssVar(v));
   S.mainChart=new Chart($('mainChart'),{ type,
-    data:{ labels, datasets:[{ label, data,
+    data:{ labels, datasets:[{ label, data, spanGaps:true,
       backgroundColor: type==='pie'?palette: (type==='bar'?acc:'rgba(88,166,255,.15)'),
       borderColor:acc, borderWidth:2, fill:type==='line', tension:.35, pointRadius:type==='line'?2:0, pointHoverRadius:5 }] },
     options: baseOpts(type==='pie') });
@@ -658,24 +1058,94 @@ function drawPlat(){
   const s=S.summary; const showMeta=S.showMeta && s.metaTotal>0;
   const wrap=$('showMetaWrap'); wrap.classList.toggle('hidden',!(s.metaTotal>0)); $('showMeta').checked=S.showMeta;
   const keys=['Windows','Mac','Linux','Android','Other'].filter(k=>s[k]>0);
+  const labels=keys.map(k=>PLAT_LABEL[k]);
   const vals=keys.map(k=>s[k]); const colors=keys.map(k=>cssVar(PLAT[k]));
-  if(showMeta){ keys.push('Auto-update'); vals.push(s.metaTotal); colors.push(cssVar('--other')); }
-  const denom=showMeta ? s.total : s.installTotal; // segments sum to 100% either way
-  const valOf=k=>k==='Auto-update'?s.metaTotal:s[k];
+  if(showMeta){
+    // One "Auto-update" wedge told you nothing. Split it into the kinds that mean different things.
+    const extra = s.hasUpdateChannel
+      ? [['In-app updates',s.kinds.payload,'--good'],['Update checks',s.kinds.feed,'--accent-2'],
+         ['Verification',s.kinds.verify+s.kinds.other,'--muted']]
+      : [['Auto-update',s.metaTotal,'--other']];
+    extra.forEach(([l,n,c])=>{ if(n>0){ labels.push(l); vals.push(n); colors.push(cssVar(c)); } });
+  }
+  const denom=showMeta ? s.total : s.installerTotal; // segments sum to 100% either way
   if(S.platChart)S.platChart.destroy();
   S.platChart=new Chart($('platChart'),{ type:'doughnut',
-    data:{ labels:keys, datasets:[{data:vals,backgroundColor:colors,borderColor:cssVar('--panel'),borderWidth:3}] },
-    options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${fmt(c.parsed)} (${denom?Math.round(100*c.parsed/denom):0}%)`}}}} });
-  $('platLegend').innerHTML=keys.map(k=>`<span><i style="background:var(${k==='Auto-update'?'--other':PLAT[k]})"></i>${k} · ${denom?Math.round(100*valOf(k)/denom):0}%</span>`).join('');
+    data:{ labels, datasets:[{data:vals,backgroundColor:colors,borderColor:cssVar('--panel'),borderWidth:3}] },
+    options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${fmt(c.parsed)} (${pct(c.parsed,denom)}%)`}}}} });
+  $('platLegend').innerHTML=labels.map((l,i)=>`<span><i style="background:${colors[i]}"></i>${l} · ${pct(vals[i],denom)}%</span>`).join('');
+  renderOverrideInfo();
+}
+function renderOverrideInfo(){
+  const n=Object.keys(S.rules||{}).length; const el=$('ovrInfo');
+  el.innerHTML = n ? `${n} platform override${n>1?'s':''} for this repo · <a href="#" onclick="event.preventDefault();clearPlatRules()" style="color:var(--accent)">Reset</a>` : '';
 }
 function drawAdopt(){
-  const top=[...S.versions].sort((a,b)=>b.total_downloads-a.total_downloads).slice(0,10).reverse();
+  const top=[...S.versions].sort((a,b)=>mvTotal(b)-mvTotal(a)).slice(0,10).reverse();
   if(S.adoptChart)S.adoptChart.destroy();
   S.adoptChart=new Chart($('adoptChart'),{ type:'bar',
-    data:{ labels:top.map(v=>v.version), datasets:[{label:'Downloads',data:top.map(v=>v.total_downloads),backgroundColor:cssVar('--accent-2'),borderRadius:5}] },
+    data:{ labels:top.map(v=>v.version), datasets:[{label:'Downloads',data:top.map(mvTotal),backgroundColor:cssVar('--accent-2'),borderRadius:5}] },
     options:{ indexAxis:'y', responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.parsed.x)} downloads · ${top[c.dataIndex].share}%`}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.parsed.x)} downloads · ${mvShare(top[c.dataIndex])}%`}}},
       scales:{x:{beginAtZero:true,grid:{color:cssVar('--border')},ticks:{color:cssVar('--muted'),callback:v=>fmtShort(v)}},y:{grid:{display:false},ticks:{color:cssVar('--muted')}}} } });
+}
+
+/* ---------- update channel ----------
+   Gated on the repo actually publishing an update feed or differential payloads, so repos
+   without an auto-updater never see any of this. */
+const UPD_VERSIONS=15;
+function drawUpd(){
+  const s=S.summary, sec=$('updSection');
+  sec.classList.toggle('hidden',!s.hasUpdateChannel);
+  if(!s.hasUpdateChannel){ if(S.updChart){S.updChart.destroy(); S.updChart=null;} return; }
+  const r=snapRange(), u=(r&&r.upd)||{};
+  const since=(n)=> n>0 ? `<div class="k-sub up">▲ ${fmt(n)} since ${fmtSnapLabel(r.from.t)}</div>` : '';
+  const days=Math.max(1,(new Date()-S.versions[S.versions.length-1].date)/864e5);
+  $('updKpis').innerHTML=`
+    <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">In-app updates</div><div class="k-val">${fmt(s.inapp)}</div><div class="k-sub">delivered to already-installed apps</div>${since(u.inapp)}</div>
+    <div class="kpi"><div class="k-bar" style="background:var(--accent-2)"></div><div class="k-label">Update checks</div><div class="k-val">${fmt(s.kinds.feed)}</div><div class="k-sub">${fmt(Math.round(s.kinds.feed/days))}/day since the first release</div>${since(u.checks)}</div>
+    <div class="kpi"><div class="k-bar" style="background:var(--accent)"></div><div class="k-label">Direct downloads</div><div class="k-val">${fmt(s.direct)}</div><div class="k-sub">pulled from a link or the releases page</div>${since(u.direct)}</div>
+    <div class="kpi"><div class="k-bar" style="background:var(--warn)"></div><div class="k-label">Update mix</div><div class="k-val">${pct(s.inapp,s.installerTotal)}%<span style="font-size:14px;color:var(--faint)"> in-app</span></div><div class="k-sub">share of installer downloads delivered as updates</div></div>`;
+
+  const view=$('uView').value;
+  const good=cssVar('--good'), acc=cssVar('--accent'), a2=cssVar('--accent-2');
+  let cfg;
+  if(view==='checks'){
+    const snaps=repoSnaps();
+    if(snaps.length<2){ $('uView').value='version'; return drawUpd(); }
+    cfg={ type:'line',
+      data:{ labels:snaps.map(x=>new Date(x.t).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit'})),
+        datasets:[{label:'Update checks',data:snaps.map(x=>snapVal(x,'checks')),spanGaps:true,
+          borderColor:a2,backgroundColor:'rgba(88,166,255,.15)',borderWidth:2,fill:true,tension:.3,pointRadius:2,pointHoverRadius:5}] },
+      options: baseOpts(false) };
+  } else if(view==='platform'){
+    const keys=['Windows','Mac','Linux','Android','Other'].filter(k=>s.byPlat[k].direct+s.byPlat[k].inapp>0);
+    cfg={ type:'bar',
+      data:{ labels:keys.map(k=>PLAT_LABEL[k]), datasets:[
+        {label:'In-app updates',data:keys.map(k=>s.byPlat[k].inapp),backgroundColor:good,borderRadius:4},
+        {label:'Direct downloads',data:keys.map(k=>s.byPlat[k].direct),backgroundColor:acc,borderRadius:4}] },
+      options: stackedOpts() };
+  } else {
+    const vs=[...filteredVersions()].sort((a,b)=>a.date-b.date).slice(-UPD_VERSIONS);
+    cfg={ type:'bar',
+      data:{ labels:vs.map(v=>v.version), datasets:[
+        {label:'In-app updates',data:vs.map(v=>v.inapp),backgroundColor:good,borderRadius:4},
+        {label:'Direct downloads',data:vs.map(v=>v.direct),backgroundColor:acc,borderRadius:4}] },
+      options: stackedOpts() };
+  }
+  if(S.updChart)S.updChart.destroy();
+  S.updChart=new Chart($('updChart'),cfg);
+  $('updNote').textContent = view==='checks'
+    ? 'Each point is one of your snapshots. Update-check history is re-derived from stored per-asset counts, so it reaches back to your first snapshot.'
+    : 'Update checks are counted against whichever release /releases/latest/download resolves to, so they concentrate on a single tag rather than spreading across versions.';
+}
+function stackedOpts(){
+  const grid=cssVar('--border'), tick=cssVar('--muted');
+  return { responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{display:true,position:'top',labels:{color:tick,font:{size:12},boxWidth:12}},
+      tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fmt(c.parsed.y)}`}} },
+    scales:{ x:{stacked:true,grid:{display:false},ticks:{color:tick,maxRotation:60,minRotation:0}},
+             y:{stacked:true,beginAtZero:true,grid:{color:grid},ticks:{color:tick,callback:v=>fmtShort(v)}} } };
 }
 
 /* ---------- star history ---------- */
@@ -734,41 +1204,87 @@ function drawStarChart(){
 }
 
 /* ---------- table ---------- */
+function tableCols(){
+  const cols=['Version','Published','Age',
+              MODE_INST()?'Installers / day':'Downloads / day',
+              MODE_INST()?'Installers':'All files'];
+  if(S.summary.hasUpdateChannel) cols.push('In-app');
+  cols.push('Gained','Share');
+  return cols;
+}
 function renderTable(){
   const body=$('relBody'); body.innerHTML='';
+  const cols=tableCols();
+  $('relHead').innerHTML=cols.map(c=>`<th>${c}</th>`).join('');
+  const hasUpd=S.summary.hasUpdateChannel;
   const range=snapRange(); // null until there are 2+ snapshots and a valid pair is picked
   const showGain=range && !range.noBaseline;
   const rangeLabel=range?`${fmtSnapLabel(range.from.t)} → ${fmtSnapLabel(range.to.t)}`:'';
+  const maxShare=Math.max(1,...S.versions.map(mvShare));
   filteredVersions().forEach((v,i)=>{
     const tr=document.createElement('tr'); tr.className='main';
-    const maxShare=S.versions[0]?Math.max(...S.versions.map(x=>x.share)):1;
+    const share=mvShare(v);
     const gain=showGain?(range.delta[v.version]||0):null;
     const gainCell=gain===null
       ? '<span style="color:var(--faint)">—</span>'
       : `<span title="${fmt(gain)} downloads between ${escapeHtml(rangeLabel)}" style="color:${gain>0?'var(--good)':'var(--faint)'};font-weight:${gain>0?800:600}">${gain>0?'▲ ':''}${gain>=0?'+':''}${fmt(gain)}</span>`;
+    const inAppCell=hasUpd
+      ? `<td class="num" style="color:var(--good)">${fmt(v.inapp)}<span style="font-size:11px;color:var(--faint);font-weight:600"> ${pct(v.inapp,v.installerTotal)}%</span></td>`
+      : '';
     tr.innerHTML=`<td><span class="vtag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>${escapeHtml(v.version)}${v.prerelease?' <span class="pill" style="background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)">pre</span>':''}</span></td>
       <td>${v.date.toISOString().slice(0,10)}</td>
       <td>${v.age}d</td>
-      <td class="num" style="color:var(--accent-2)">${fmt(v.downloads_per_day)}</td>
-      <td class="num" style="color:var(--accent)">${fmt(v.total_downloads)}</td>
+      <td class="num" style="color:var(--accent-2)">${fmt(mvPerDay(v))}</td>
+      <td class="num" style="color:var(--accent)">${fmt(mvTotal(v))}</td>
+      ${inAppCell}
       <td class="num">${gainCell}</td>
-      <td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;max-width:70px;height:7px;background:var(--panel-2);border-radius:99px;overflow:hidden"><span style="display:block;height:100%;width:${maxShare?100*v.share/maxShare:0}%;background:var(--accent)"></span></div><span style="font-size:12px;color:var(--muted);font-weight:700">${v.share}%</span></div></td>`;
+      <td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;max-width:70px;height:7px;background:var(--panel-2);border-radius:99px;overflow:hidden"><span style="display:block;height:100%;width:${100*share/maxShare}%;background:var(--accent)"></span></div><span style="font-size:12px;color:var(--muted);font-weight:700">${share}%</span></div></td>`;
     const detail=document.createElement('tr'); detail.className='hidden';
-    const assets=[...v.assets].sort((a,b)=>b.count-a.count).map(a=>{
-      const ag=showGain?(range.aDelta[v.version+'::'+a.name]||0):0;
-      const aArrow=ag>0?` <span title="+${fmt(ag)} downloads between ${escapeHtml(rangeLabel)}" style="color:var(--good);font-weight:800;font-size:11px">▲ ${fmtShort(ag)}</span>`:'';
-      let staleMark='';
-      if(ag<=0 && repoSnaps().length>=2){
-        const w=lastGrowthWindow(v.version,a.name);
-        if(w) staleMark=` <span title="${escapeHtml(growthTooltip(w))}" style="color:var(--faint);font-size:11px;cursor:help;border-bottom:1px dotted var(--faint)">last seen</span>`;
-      }
-      const badge=a.meta?'Auto-update':a.cat; const bc=a.meta?'--other':PLAT[a.cat];
-      return `<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}${aArrow}${staleMark}</span><span class="pill" style="background:color-mix(in srgb,var(${bc}) 16%,transparent);color:var(${bc})">${badge}</span></div></div>`;
-    }).join('');
-    detail.innerHTML=`<td colspan="7" style="background:var(--panel-2)"><div class="assets">${assets||'No asset data.'}</div></td>`;
+    // Group by kind so the installers — the only rows most people came for — sit at the top
+    // instead of being buried under blockmaps and latest.yml, which usually out-download them.
+    const groups=KIND_ORDER.map(k=>[k,v.assets.filter(a=>a.kind===k).sort((a,b)=>b.count-a.count)])
+                           .filter(([,list])=>list.length);
+    const assets=groups.map(([kind,list])=>
+      `<div class="kgroup">${KIND_GROUP[kind]}</div>`+list.map(a=>renderAssetCard(v,a,range,showGain,rangeLabel)).join('')
+    ).join('');
+    detail.innerHTML=`<td colspan="${cols.length}" style="background:var(--panel-2)"><div class="assets">${assets||'No asset data.'}</div></td>`;
     tr.onclick=()=>{ tr.classList.toggle('open'); detail.classList.toggle('hidden'); };
     body.appendChild(tr); body.appendChild(detail);
   });
+}
+function renderAssetCard(v,a,range,showGain,rangeLabel){
+  const ag=showGain?(range.aDelta[v.version+'::'+a.name]||0):0;
+  const aArrow=ag>0?` <span title="+${fmt(ag)} downloads between ${escapeHtml(rangeLabel)}" style="color:var(--good);font-weight:800;font-size:11px">▲ ${fmtShort(ag)}</span>`:'';
+  let staleMark='';
+  if(ag<=0 && repoSnaps().length>=2){
+    const w=lastGrowthWindow(v.version,a.name);
+    if(w) staleMark=` <span title="${escapeHtml(growthTooltip(w))}" style="color:var(--faint);font-size:11px;cursor:help;border-bottom:1px dotted var(--faint)">last seen</span>`;
+  }
+  let badge, bc, extra='', cls='pill', attrs='';
+  if(a.kind==='installer'){
+    badge = a.ambiguous ? 'Unknown' : PLAT_LABEL[a.cat];
+    bc = a.ambiguous ? '--warn' : PLAT[a.cat];
+    if(a.arch) badge+=' · '+a.arch;
+    // Only an explicit assignment can resolve a name that carries no OS token at all.
+    cls='pill act';
+    attrs=` title="${a.overridden?'Platform set by you — click to change':'Click to set the platform for this file pattern'}" onclick="event.stopPropagation();openOverride(this,'${escapeAttr(a.name)}')"`;
+    if(a.pairedWith) extra=`<div class="split">${fmt(a.inapp)} in-app · ${fmt(a.direct)} direct</div>`;
+  } else {
+    badge=KIND_LABEL[a.kind]; bc=KIND_COLOR[a.kind]||'--other';
+    if(a.kind==='payload') extra=a.payloadFor
+      ? `<div class="split">paired with ${escapeHtml(a.payloadFor)}</div>`
+      : `<div class="split" style="color:var(--warn)">no matching installer</div>`;
+  }
+  const pill=`<span class="${cls}"${attrs} style="background:color-mix(in srgb,var(${bc}) 16%,transparent);color:var(${bc})">${badge}</span>`;
+  return `<div class="asset"><div class="an">${escapeHtml(a.name)}</div><div class="ab"><span class="ac">${fmt(a.count)}${aArrow}${staleMark}</span>${pill}</div>${extra}</div>`;
+}
+/* Swap the badge for a picker; the choice is stored as a filename pattern, so it also applies
+   to the same asset in every other release — past and future. */
+function openOverride(el,name){
+  const cur=platRuleFor(name)||'';
+  const opts=[['','Auto-detect'],['Windows','Windows'],['Mac','macOS'],['Linux','Linux'],['Android','Android'],['Other','Other']];
+  el.outerHTML=`<select class="ovrsel" onclick="event.stopPropagation()" onchange="event.stopPropagation();setPlatRule('${escapeAttr(name)}',this.value)">`
+    +opts.map(([v,t])=>`<option value="${v}"${v===cur?' selected':''}>${t}</option>`).join('')+`</select>`;
 }
 
 /* ---------- recent repos ---------- */
@@ -809,9 +1325,13 @@ function renderCompare(){
 /* ---------- snapshot info + import/export ---------- */
 function renderSnapInfo(){
   const a=repoSnaps();
-  $('snapInfo').innerHTML = a.length<2
+  const base = a.length<2
     ? `<b>${a.length}</b> snapshot stored for <b>${S.repo}</b>. Velocity becomes "measured" once you have 2+ snapshots taken at different times.`
     : `<b>${a.length}</b> snapshots for <b>${S.repo}</b>, from ${new Date(a[0].t).toLocaleString()} to ${new Date(a[a.length-1].t).toLocaleString()}.`;
+  // A silent quota failure looks exactly like a working tracker, so say it out loud.
+  const warn = S.snapSaveError
+    ? `<div style="color:var(--bad);margin-top:8px">Snapshot could not be saved — this browser's local storage is full. Export your history, then use "Clear this repo" to free space.</div>` : '';
+  $('snapInfo').innerHTML = base+warn;
 }
 /* ---------- compare snapshots ---------- */
 function fmtSnapLabel(t){ return new Date(t).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
@@ -830,8 +1350,16 @@ function snapRange(){
   let from=a[i], to=a[j];
   if(new Date(from.t)>new Date(to.t)) [from,to]=[to,from];
   const days=Math.max((new Date(to.t)-new Date(from.t))/864e5,1/24);
-  const gained=to.total-from.total;
-  const fromPv=from.pv||{}, toPv=to.pv||{}, fromPa=from.pa||{}, toPa=to.pa||{};
+  // In installer mode both ends must be derivable, otherwise the pair simply has no answer
+  // in this mode — say so rather than quietly falling back to a different definition.
+  const tFrom=snapTotal(from), tTo=snapTotal(to);
+  const modeUnavailable = tFrom==null || tTo==null;
+  const gained = modeUnavailable ? null : tTo-tFrom;
+  const sub=(m)=>{ const x=snapVal(from,m), y=snapVal(to,m); return (x==null||y==null)?null:y-x; };
+  const upd={ checks:sub('checks'), inapp:sub('inapp'), direct:sub('direct') };
+  const fromPv = MODE_INST() ? (deriveSnap(from).pvInst||{}) : (from.pv||{});
+  const toPv   = MODE_INST() ? (deriveSnap(to).pvInst||{})   : (to.pv||{});
+  const fromPa=from.pa||{}, toPa=to.pa||{};
   const dateOf={}; S.versions.forEach(v=>dateOf[v.version]=v.date);
   // A version published after the "from" snapshot is genuinely new, so its whole count is
   // a gain. One that already existed but has no baseline (old snapshots predate per-version
@@ -847,8 +1375,8 @@ function snapRange(){
     aDelta[k]=toPa[k]-(known?fromPa[k]:(isNew?0:toPa[k]));
   });
   const overlap=Object.keys(toPv).filter(t=>fromPv[t]!=null).length;
-  return { from, to, days, gained, perDay:gained/days, delta, aDelta,
-    noBaseline: overlap===0 && Object.keys(toPv).length>0 };
+  return { from, to, days, gained, perDay:gained==null?null:gained/days, delta, aDelta, upd, modeUnavailable,
+    noBaseline: modeUnavailable || (overlap===0 && Object.keys(toPv).length>0) };
 }
 function onSnapRangeChange(){ renderSnapCompare(); renderTable(); }
 function renderSnapCompare(){
@@ -858,12 +1386,15 @@ function renderSnapCompare(){
   ctl.classList.remove('hidden');
   const r=snapRange();
   if(!r){ el.innerHTML=note('Pick two different snapshots to compare.'); return; }
+  const lbl=MODE_INST()?'Installers gained':'Total gained';
   el.innerHTML=`
     <div class="kpis" style="margin-bottom:16px">
-      <div class="kpi"><div class="k-bar"></div><div class="k-label">Total gained</div><div class="k-val">${r.gained>=0?'+':''}${fmt(r.gained)}</div><div class="k-sub">${fmtSnapLabel(r.from.t)} → ${fmtSnapLabel(r.to.t)}</div></div>
-      <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">Avg / day</div><div class="k-val">${fmt(Math.round(r.perDay))}</div><div class="k-sub">${r.days<1?'<1 day':Math.round(r.days)+' day(s)'} apart</div></div>
+      <div class="kpi"><div class="k-bar"></div><div class="k-label">${lbl}</div><div class="k-val">${r.gained==null?'—':(r.gained>=0?'+':'')+fmt(r.gained)}</div><div class="k-sub">${fmtSnapLabel(r.from.t)} → ${fmtSnapLabel(r.to.t)}</div></div>
+      <div class="kpi"><div class="k-bar" style="background:var(--good)"></div><div class="k-label">Avg / day</div><div class="k-val">${r.perDay==null?'—':fmt(Math.round(r.perDay))}</div><div class="k-sub">${r.days<1?'<1 day':Math.round(r.days)+' day(s)'} apart</div></div>
     </div>
-    ${r.noBaseline?note(`The earlier snapshot (${fmtSnapLabel(r.from.t)}) has no per-version data — it predates per-version tracking — so the Gained column isn't available for this pair. The totals above are still accurate.`):''}`;
+    ${r.modeUnavailable
+      ? note(`The earlier snapshot (${fmtSnapLabel(r.from.t)}) has no per-asset data, so installer-only totals can't be compared for this pair. Switch to <b>All files</b>, or pick a more recent baseline.`)
+      : (r.noBaseline?note(`The earlier snapshot (${fmtSnapLabel(r.from.t)}) has no per-version data — it predates per-version tracking — so the Gained column isn't available for this pair. The totals above are still accurate.`):'')}`;
 }
 function exportSnapshots(){
   const data=JSON.stringify({repo:S.repo,exported:new Date().toISOString(),snapshots:repoSnaps()},null,2);
@@ -875,21 +1406,31 @@ function importSnapshots(ev){
     if(!Array.isArray(incoming)) throw 0;
     const o=loadSnaps(); const merged=[...(o[repo]||[]),...incoming]
       .filter((s,i,arr)=>arr.findIndex(x=>x.t===s.t)===i).sort((a,b)=>new Date(a.t)-new Date(b.t));
-    o[repo]=merged.slice(-500); saveSnaps(o);
+    o[repo]=merged.slice(-500); saveSnaps(o); invalidateSnaps();
     if(repo===S.repo){ render(); } msg(`Imported ${incoming.length} snapshots for ${repo}.`,'warn');
   }catch(e){ msg('Could not import that file.','err'); } };
   rd.readAsText(f); ev.target.value='';
 }
-function clearSnapshots(){ const o=loadSnaps(); delete o[S.repo]; saveSnaps(o); saveSnapshot(); render(); }
+function clearSnapshots(){ const o=loadSnaps(); delete o[S.repo]; saveSnaps(o); invalidateSnaps(); saveSnapshot(); render(); }
 
 /* ---------- exports ---------- */
 function exportCSV(){
-  const rows=[['version','published','age_days','days_live','downloads_per_day','windows','mac','linux','android','other','install_total','auto_update','total','share_pct']];
-  S.versions.forEach(v=>rows.push([v.version,v.date.toISOString().slice(0,10),v.age,v.days_live,v.downloads_per_day,v.windows,v.mac,v.linux,v.android,v.other,v.installTotal,v.metaTotal,v.total_downloads,v.share]));
+  // The original 14 columns keep their names, order and meaning — people script against them.
+  const rows=[['version','published','age_days','days_live','downloads_per_day','windows','mac','linux','android','other','install_total','auto_update','total','share_pct',
+               'direct_downloads','inapp_updates','update_checks','verification','other_files','installers_per_day','share_installers_pct']];
+  S.versions.forEach(v=>rows.push([v.version,v.date.toISOString().slice(0,10),v.age,v.days_live,v.dpdAll,v.windows,v.mac,v.linux,v.android,v.other,v.installTotal,v.metaTotal,v.total_downloads,v.shareAll,
+    v.direct,v.inapp,v.kinds.feed,v.kinds.verify,v.kinds.other,v.dpdInst,v.shareInst]));
   download(`${S.repo.replace('/','-')}-downloads.csv`, rows.map(r=>r.map(c=>`"${(''+c).replace(/"/g,'""')}"`).join(',')).join('\n'),'text/csv');
 }
 function exportJSON(){
-  download(`${S.repo.replace('/','-')}-downloads.json`, JSON.stringify({repo:S.repo,summary:S.summary,generated:new Date().toISOString(),versions:S.versions.map(v=>({version:v.version,published:v.date.toISOString(),total:v.total_downloads,installTotal:v.installTotal,metaTotal:v.metaTotal,perDay:v.downloads_per_day,share:v.share,platforms:v.cats,assets:v.assets}))},null,2),'application/json');
+  download(`${S.repo.replace('/','-')}-downloads.json`, JSON.stringify({
+    repo:S.repo, generated:new Date().toISOString(), generatedBy:'release-radar', classifierVersion:2,
+    countingMode:S.mode, summary:S.summary,
+    versions:S.versions.map(v=>({version:v.version,published:v.date.toISOString(),
+      total:v.total_downloads,installTotal:v.installTotal,metaTotal:v.metaTotal,
+      kinds:v.kinds,inapp:v.inapp,direct:v.direct,checks:v.checks,
+      perDay:v.dpdAll,perDayInstallers:v.dpdInst,share:v.shareAll,shareInstallers:v.shareInst,
+      platforms:v.cats,platformSplit:v.byPlat,assets:v.assets}))},null,2),'application/json');
 }
 const PDF_MAX_ROWS=60; // rendering hundreds of release rows freezes html2canvas — cap and note it
 // html2canvas's bundled color parser doesn't understand color-mix() — Chrome keeps it
@@ -951,16 +1492,64 @@ function download(name,content,type){ const b=new Blob([content],{type}); const 
 
 /* ---------- utils ---------- */
 function escapeHtml(s){ return (''+s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+/* For values interpolated into a single-quoted inline handler argument. */
+function escapeAttr(s){ return escapeHtml(s).replace(/\\/g,'\\\\'); }
 function setUrl(repo){ try{ const u=new URL(location); u.searchParams.set('repo',repo); history.replaceState(null,'',u); }catch(e){} }
 
 /* ---------- init ---------- */
 (function init(){
   try{ S.showMeta=!!localStorage.getItem(LS.showMeta); }catch(e){}
+  try{ S.mode=localStorage.getItem(LS.mode)==='all'?'all':'inst'; }catch(e){}
   loadStoredToken();
   renderRecent();
+  if(location.hash==='#selftest') selfTest();
   const p=new URLSearchParams(location.search).get('repo');
   if(p){ $('repoInput').value=p; run(); }
 })();
+
+/* ---------- classifier self-test ----------
+   No build step and no test runner, so the corpus lives here: open index.html#selftest and
+   read the console. Every case below is a real filename from a real release. */
+function selfTest(){
+  const C=[
+    ['Joplin-Setup-3.7.9.exe','installer','Windows'],
+    ['Joplin-Setup-3.7.9.exe.blockmap','payload','Windows'],
+    ['Joplin-3.7.9-arm64.DMG','installer','Mac'],
+    ['Joplin-3.7.9-mac.zip','installer','Mac'],
+    ['Joplin-3.7.9-arm64.zip','installer','Other'],       // genuinely ambiguous — needs an override
+    ['Joplin-3.7.9.AppImage','installer','Linux'],
+    ['Joplin-3.7.9.AppImage.sha512','verify','Linux'],
+    ['latest.yml','feed','Windows'],
+    ['latest-mac.yml','feed','Mac'],
+    ['latest-mac-arm64.yml','feed','Mac'],
+    ['latest-linux.yml','feed','Linux'],
+    ['gh_2.96.0_macOS_amd64.zip','installer','Mac'],
+    ['gh_2.96.0_windows_amd64.zip','installer','Windows'],
+    ['gh_2.96.0_linux_amd64.tar.gz','installer','Linux'],
+    ['gh_2.96.0_checksums.txt','verify','Other'],
+    ['bat-v0.26.1-x86_64-apple-darwin.tar.gz','installer','Mac'],
+    ['bat-v0.26.1-x86_64-pc-windows-msvc.zip','installer','Windows'],
+    ['bat-v0.26.1-x86_64-unknown-linux-gnu.tar.gz','installer','Linux'],
+    ['bat-v0.26.1-x86_64-pc-windows-gnu.zip','installer','Windows'],  // "gnu" must not mean Linux
+    ['Ollama-darwin.zip','installer','Mac'],              // "darwin" contains "win"
+    ['app-1.0.0.apk','installer','Android'],
+    ['App_1.0.0_x64_en-US.msi.zip','installer','Windows'],// Tauri: peel the wrapper
+    ['App.app.tar.gz','installer','Mac'],
+    ['MyTool-1.0.zip','installer','Other'],               // no OS token anywhere
+    ['RELEASES','feed','Windows'],                        // Squirrel.Windows feed
+    ['app.pdb','other','Other']                           // kind keeps it out of platform math
+  ];
+  const prevRules=S.rules; S.rules={}; resetClassifyCache();
+  const fails=[];
+  C.forEach(([name,kind,cat])=>{
+    const r=classifyAsset(name,{hasWindows:true});
+    if(r.kind!==kind||r.cat!==cat) fails.push({name,expected:kind+'/'+cat,got:r.kind+'/'+r.cat});
+  });
+  S.rules=prevRules; resetClassifyCache();
+  if(fails.length){ console.error(`classifier self-test: ${fails.length}/${C.length} FAILED`); console.table(fails); }
+  else console.log(`classifier self-test: ${C.length}/${C.length} passed`);
+  return fails;
+}
 </script>
 </body>
 </html>
