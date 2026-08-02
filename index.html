@@ -999,7 +999,10 @@ function avg(a){ return a.length?a.reduce((x,y)=>x+y,0)/a.length:0; }
 // options.plugins.stackedTotal, so it only fires on the Update channel charts.
 Chart.register({ id:'stackedTotal',
   afterDatasetsDraw(chart){
-    if(!chart.options.plugins.stackedTotal) return;
+    // Chart.js seeds options.plugins.<id> with {} for every registered plugin on every chart
+    // (plugins are on-by-default), and {} is truthy — so this must check for the literal true
+    // we opt in with, not just presence, or every chart on the page gets these labels.
+    if(chart.options.plugins.stackedTotal!==true) return;
     const {ctx}=chart, n=chart.data.labels.length;
     ctx.save(); ctx.font='700 11px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif';
     ctx.fillStyle=cssVar('--text'); ctx.textAlign='center';
