@@ -350,6 +350,7 @@ tr.open .vtag svg{transform:rotate(180deg)}
           <label class="iconbtn" style="cursor:pointer">Import history<input type="file" accept="application/json" style="display:none" onchange="importSnapshots(event)"></label>
           <button class="iconbtn" onclick="clearSnapshots()" style="color:var(--bad);border-color:color-mix(in srgb,var(--bad) 30%,transparent)">Clear this repo</button>
         </div>
+        <div id="snapList" class="cmp-list" style="margin-top:14px;max-height:280px;overflow-y:auto"></div>
       </div>
     </div>
 
@@ -885,7 +886,7 @@ function render(){
   $('cGroup').value = 'version';
   // selects must be populated before renderTable — it reads them for the "Gained" column
   populateSnapSelects(); renderSnapCompare();
-  drawMain(); drawPlat(); drawAdopt(); drawUpd(); renderTable(); renderSnapInfo(); renderCompare(); renderFilterInfo();
+  drawMain(); drawPlat(); drawAdopt(); drawUpd(); renderTable(); renderSnapInfo(); renderSnapList(); renderCompare(); renderFilterInfo();
 }
 
 /* Both value sets already exist on the model, so switching modes is a pure re-render. */
@@ -994,6 +995,26 @@ function downloadedPlatforms(){ const s=S.summary; return ['Windows','Mac','Linu
 function avg(a){ return a.length?a.reduce((x,y)=>x+y,0)/a.length:0; }
 
 /* ---------- charts ---------- */
+// Draws the installer+update total above each stacked bar — opted into via
+// options.plugins.stackedTotal, so it only fires on the Update channel charts.
+Chart.register({ id:'stackedTotal',
+  afterDatasetsDraw(chart){
+    if(!chart.options.plugins.stackedTotal) return;
+    const {ctx}=chart, n=chart.data.labels.length;
+    ctx.save(); ctx.font='700 11px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif';
+    ctx.fillStyle=cssVar('--text'); ctx.textAlign='center';
+    for(let i=0;i<n;i++){
+      let total=0, topY=Infinity, x=null;
+      chart.data.datasets.forEach((ds,di)=>{
+        const v=ds.data[i]||0; total+=v;
+        const el=chart.getDatasetMeta(di).data[i];
+        if(el){ x=el.x; if(v>0) topY=Math.min(topY,el.y); }
+      });
+      if(x==null || total<=0 || !isFinite(topY)) continue;
+      ctx.fillText(fmt(total), x, topY-6);
+    }
+    ctx.restore();
+  } });
 function baseOpts(showLegend){
   const grid=cssVar('--border'), tick=cssVar('--muted');
   return { responsive:true, maintainAspectRatio:false,
@@ -1094,6 +1115,31 @@ function drawAdopt(){
    Gated on the repo actually publishing an update feed or differential payloads, so repos
    without an auto-updater never see any of this. */
 const UPD_VERSIONS=15;
+/* The raw cumulative "checks" count only ever grows, and against a from-zero axis it reads as a
+   flat line near its max until history spans a very long time. The gained-per-period delta is
+   readable from day one and doubles as a rough proxy for how many installs are actively polling
+   for updates. Buckets by calendar day once 3+ days are on record (cleans up dense same-day
+   snapshots); before that it falls back to per-snapshot deltas so early history isn't empty. */
+function checkVelocitySeries(){
+  const snaps=repoSnaps().filter(s=>snapVal(s,'checks')!=null).sort((a,b)=>new Date(a.t)-new Date(b.t));
+  if(snaps.length<2) return {points:[],granularity:null};
+  const days=new Set(snaps.map(s=>new Date(s.t).toLocaleDateString('en-CA')));
+  if(days.size>=3){
+    const byDay=new Map();
+    snaps.forEach(s=>byDay.set(new Date(s.t).toLocaleDateString('en-CA'),snapVal(s,'checks'))); // last-of-day wins
+    const keys=[...byDay.keys()].sort();
+    const points=[];
+    for(let i=1;i<keys.length;i++) points.push({
+      label:new Date(keys[i]+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}),
+      value:Math.max(0,byDay.get(keys[i])-byDay.get(keys[i-1])) });
+    return {points,granularity:'day'};
+  }
+  const points=[];
+  for(let i=1;i<snaps.length;i++) points.push({
+    label:new Date(snaps[i].t).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit'}),
+    value:Math.max(0,snapVal(snaps[i],'checks')-snapVal(snaps[i-1],'checks')) });
+  return {points,granularity:'snapshot'};
+}
 function drawUpd(){
   const s=S.summary, sec=$('updSection');
   sec.classList.toggle('hidden',!s.hasUpdateChannel);
@@ -1109,14 +1155,15 @@ function drawUpd(){
 
   const view=$('uView').value;
   const good=cssVar('--good'), acc=cssVar('--accent'), a2=cssVar('--accent-2');
-  let cfg;
+  let cfg, checkGranularity=null;
   if(view==='checks'){
-    const snaps=repoSnaps();
-    if(snaps.length<2){ $('uView').value='version'; return drawUpd(); }
-    cfg={ type:'line',
-      data:{ labels:snaps.map(x=>new Date(x.t).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit'})),
-        datasets:[{label:'Update checks',data:snaps.map(x=>snapVal(x,'checks')),spanGaps:true,
-          borderColor:a2,backgroundColor:'rgba(88,166,255,.15)',borderWidth:2,fill:true,tension:.3,pointRadius:2,pointHoverRadius:5}] },
+    const {points,granularity}=checkVelocitySeries();
+    if(!points.length){ $('uView').value='version'; return drawUpd(); }
+    checkGranularity=granularity;
+    cfg={ type:'bar',
+      data:{ labels:points.map(p=>p.label),
+        datasets:[{label:'Update checks gained',data:points.map(p=>p.value),
+          backgroundColor:a2,borderRadius:4}] },
       options: baseOpts(false) };
   } else if(view==='platform'){
     const keys=['Windows','Mac','Linux','Android','Other'].filter(k=>s.byPlat[k].direct+s.byPlat[k].inapp>0);
@@ -1136,14 +1183,18 @@ function drawUpd(){
   if(S.updChart)S.updChart.destroy();
   S.updChart=new Chart($('updChart'),cfg);
   $('updNote').textContent = view==='checks'
-    ? 'Each point is one of your snapshots. Update-check history is re-derived from stored per-asset counts, so it reaches back to your first snapshot.'
+    ? (checkGranularity==='day'
+        ? 'Each bar is update checks gained on that calendar day — a rough proxy for how many installs were actively polling for updates. Re-derived from your snapshots, so it reaches back to your first one and sharpens the more often you revisit.'
+        : 'Each bar is update checks gained between two consecutive snapshots. Once your history spans 3+ days this groups into one bar per day instead.')
     : 'Update checks are counted against whichever release /releases/latest/download resolves to, so they concentrate on a single tag rather than spreading across versions.';
 }
 function stackedOpts(){
   const grid=cssVar('--border'), tick=cssVar('--muted');
-  return { responsive:true, maintainAspectRatio:false,
+  return { responsive:true, maintainAspectRatio:false, layout:{padding:{top:22}},
     plugins:{ legend:{display:true,position:'top',labels:{color:tick,font:{size:12},boxWidth:12}},
-      tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fmt(c.parsed.y)}`}} },
+      stackedTotal:true,
+      tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fmt(c.parsed.y)}`,
+        footer:items=>`Total: ${fmt(items.reduce((n,it)=>n+it.parsed.y,0))}`}} },
     scales:{ x:{stacked:true,grid:{display:false},ticks:{color:tick,maxRotation:60,minRotation:0}},
              y:{stacked:true,beginAtZero:true,grid:{color:grid},ticks:{color:tick,callback:v=>fmtShort(v)}} } };
 }
@@ -1204,8 +1255,10 @@ function drawStarChart(){
 }
 
 /* ---------- table ---------- */
+const COL_TITLE={ Age:'Days since this version was published',
+  Live:"Days this version was the latest release before being superseded — or, for the current latest, days it's been live so far" };
 function tableCols(){
-  const cols=['Version','Published','Age',
+  const cols=['Version','Published','Age','Live',
               MODE_INST()?'Installers / day':'Downloads / day',
               MODE_INST()?'Installers':'All files'];
   if(S.summary.hasUpdateChannel) cols.push('In-app');
@@ -1215,7 +1268,7 @@ function tableCols(){
 function renderTable(){
   const body=$('relBody'); body.innerHTML='';
   const cols=tableCols();
-  $('relHead').innerHTML=cols.map(c=>`<th>${c}</th>`).join('');
+  $('relHead').innerHTML=cols.map(c=>`<th${COL_TITLE[c]?` title="${COL_TITLE[c]}"`:''}>${c}</th>`).join('');
   const hasUpd=S.summary.hasUpdateChannel;
   const range=snapRange(); // null until there are 2+ snapshots and a valid pair is picked
   const showGain=range && !range.noBaseline;
@@ -1234,6 +1287,7 @@ function renderTable(){
     tr.innerHTML=`<td><span class="vtag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>${escapeHtml(v.version)}${v.prerelease?' <span class="pill" style="background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)">pre</span>':''}</span></td>
       <td>${v.date.toISOString().slice(0,10)}</td>
       <td>${v.age}d</td>
+      <td>${v.days_live}d${v===S.versions[0]?' <span style="color:var(--faint);font-size:11px">(so far)</span>':''}</td>
       <td class="num" style="color:var(--accent-2)">${fmt(mvPerDay(v))}</td>
       <td class="num" style="color:var(--accent)">${fmt(mvTotal(v))}</td>
       ${inAppCell}
@@ -1339,7 +1393,9 @@ function populateSnapSelects(){
   const a=repoSnaps();
   const opts=a.map((s,i)=>`<option value="${i}">${fmtSnapLabel(s.t)}</option>`).join('');
   $('cmpFrom').innerHTML=opts; $('cmpTo').innerHTML=opts;
-  if(a.length){ $('cmpFrom').value=0; $('cmpTo').value=a.length-1; }
+  // Default to the last two snapshots — "since your last visit" — rather than all-time history,
+  // so the Releases table's per-file deltas answer "what changed since I last looked" on open.
+  if(a.length){ $('cmpFrom').value=Math.max(0,a.length-2); $('cmpTo').value=a.length-1; }
 }
 /* Deltas for the selected snapshot pair. Drives both the KPIs and the Releases
    table's "Gained" column, so a version and its assets share one baseline. */
@@ -1412,6 +1468,26 @@ function importSnapshots(ev){
   rd.readAsText(f); ev.target.value='';
 }
 function clearSnapshots(){ const o=loadSnaps(); delete o[S.repo]; saveSnaps(o); invalidateSnaps(); saveSnapshot(); render(); }
+function renderSnapList(){
+  const a=repoSnaps(), el=$('snapList');
+  if(!a.length){ el.innerHTML=''; return; }
+  el.innerHTML=a.map((s,i)=>{
+    const tot=snapTotal(s);
+    return `<div class="cmp-item"><span class="ci-name" style="min-width:170px">${fmtSnapLabel(s.t)}</span>
+      <span style="flex:1;font-size:12.5px;color:var(--faint)">${tot==null?'no data':fmt(tot)+' downloads'}</span>
+      <span class="ci-x" title="Delete this snapshot" onclick="deleteSnapshot(${i})">✕</span></div>`;
+  }).reverse().join('');
+}
+/* Removing a snapshot re-derives every history-dependent view, same as importing or clearing. */
+function deleteSnapshot(i){
+  const o=loadSnaps(), arr=o[S.repo]||[];
+  if(i<0||i>=arr.length) return;
+  arr.splice(i,1); o[S.repo]=arr; saveSnaps(o); invalidateSnaps();
+  populateSnapSelects(); renderSnapCompare(); renderTable(); renderSnapInfo(); renderSnapList();
+  renderSnapBanner(); renderKPIs();
+  if($('cGroup').value==='snapshot') drawMain();
+  if(S.summary && S.summary.hasUpdateChannel) drawUpd();
+}
 
 /* ---------- exports ---------- */
 function exportCSV(){
