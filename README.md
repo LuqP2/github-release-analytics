@@ -36,6 +36,11 @@ Versions that gained downloads since your last snapshot are flagged with a green
 ### Star history
 See a repo's star growth as a cumulative chart, plus stats like average stars/day and the day it gained the most. Requires a token with access to the repo (GitHub restricts this data to admins/collaborators as of June 2026), so it works out of the box for your own repos.
 
+### Repository traffic history
+For repositories where your token has `Administration: read` access, Release Radar preserves GitHub's daily views and unique-visitor counts instead of losing them after 14 days. Each analysis merges the latest 14 daily points into the local history, so opening the app regularly builds a permanent cumulative view count without a backend.
+
+Referrer snapshots are also retained and can be filtered by source. GitHub exposes only a rolling Top 10 for the last 14 days, so the app keeps the daily rolling history and separately sums non-overlapping 14-day checkpoints into a captured-view total. That total is a lower bound when a source drops out of the Top 10 or a checkpoint is missed; unique visitors cannot be deduplicated across windows.
+
 ### Automatic insights
 Most-downloaded release, dominant platform, download momentum (recent vs. older releases), and latest-version adoption — generated automatically, no configuration.
 
@@ -64,7 +69,7 @@ Dark / light mode, KPI cards, version adoption chart, platform split donut, rece
 
 1. Open the [live app](https://luqp2.github.io/github-release-analytics/).
 2. Type a repository as `owner/repo` (e.g. `ollama/ollama`) and hit **Analyze**.
-3. *(Optional)* Add a GitHub Personal Access Token to raise the rate limit from 60 to 5,000 requests/hour. By default it stays in memory for the session only; check "Remember on this device" to save it in `localStorage` so you don't have to re-enter it. Never sent anywhere except the GitHub API.
+3. *(Optional)* Add a GitHub Personal Access Token to raise the rate limit from 60 to 5,000 requests/hour and load star/traffic history for repositories the token can access. Traffic requires `Administration: read`. By default the token stays in memory for the session only; check "Remember on this device" to save it in `localStorage` so you don't have to re-enter it. Never sent anywhere except the GitHub API.
 4. Revisit periodically — the more snapshots you accumulate, the more accurate the measured velocity.
 
 You can also deep-link straight to a repo:
@@ -79,7 +84,7 @@ https://luqp2.github.io/github-release-analytics/?repo=ollama/ollama
 
 - 100% client-side app. No backend, no sign-in — your GitHub token and snapshots never leave your browser.
 - Anonymous page-visit analytics via GoatCounter (goatcounter.com), a privacy-friendly, cookieless tool. It only counts visits — no personal data and no cross-site tracking.
-- Snapshots are stored in your browser's `localStorage` and never leave your machine unless you explicitly export them.
+- Download snapshots and traffic history are stored in your browser's `localStorage` and never leave your machine unless you explicitly export them.
 - Tokens are kept in memory only by default, and sent exclusively to `api.github.com`. If you opt in to "Remember on this device", the token is saved in `localStorage` — only enable this on a device you trust.
 
 ---
